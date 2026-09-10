@@ -1,0 +1,175 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0b0b12;
+  color: #eee;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  height: 100%;
+}
+
+/* ---- Admin ---- */
+
+.admin-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.admin-nav {
+  width: 220px;
+  flex-shrink: 0;
+  background: #14141f;
+  border-right: 1px solid #26263a;
+  padding: 16px 0;
+}
+
+.admin-nav a {
+  display: block;
+  padding: 10px 20px;
+  text-decoration: none;
+  color: #b6b6d0;
+  font-size: 14px;
+}
+
+.admin-nav a.active,
+.admin-nav a:hover {
+  background: #23233a;
+  color: #fff;
+}
+
+.admin-nav .brand {
+  padding: 0 20px 16px;
+  font-weight: 700;
+  font-size: 16px;
+  color: #fff;
+  border-bottom: 1px solid #26263a;
+  margin-bottom: 10px;
+}
+
+.admin-content {
+  flex: 1;
+  padding: 28px 32px;
+  max-width: 1100px;
+}
+
+.admin-content h1 {
+  margin-top: 0;
+  font-size: 22px;
+}
+
+.card {
+  background: #16162200;
+  background: #16161f;
+  border: 1px solid #262638;
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #262638;
+}
+
+th {
+  color: #9a9ac0;
+  font-weight: 600;
+}
+
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  background: #1e1e2e;
+  border: 1px solid #33334c;
+  color: #eee;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: #9a9ac0;
+  margin-bottom: 4px;
+  margin-top: 10px;
+}
+
+button {
+  cursor: pointer;
+  background: #4a4af0;
+  border: none;
+  font-weight: 600;
+  padding: 8px 16px;
+}
+
+button.secondary {
+  background: #2a2a40;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  background: #2a2a40;
+}
+
+/* ---- Arena (OBS source) ---- */
+
+.arena-viewport {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+}
+
+.arena-canvas-wrap {
+  aspect-ratio: 9 / 16;
+  height: 100%;
+  max-width: 100%;
+  position: relative;
+}

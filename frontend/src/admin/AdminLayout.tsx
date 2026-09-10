@@ -1,0 +1,31 @@
+import { NavLink, Outlet } from "react-router-dom";
+
+const links = [
+  { to: "/admin", label: "Dashboard", end: true },
+  { to: "/admin/battles", label: "Batalhas" },
+  { to: "/admin/characters", label: "Personagens" },
+  { to: "/admin/gifts", label: "Presentes" },
+  { to: "/admin/simulator", label: "Simulador" },
+  { to: "/admin/ranking", label: "Ranking" },
+];
+
+export default function AdminLayout() {
+  return (
+    <div className="admin-layout">
+      <nav className="admin-nav">
+        <div className="brand">⚔️ Battle Arena</div>
+        {links.map((l) => (
+          <NavLink key={l.to} to={l.to} end={l.end}>
+            {l.label}
+          </NavLink>
+        ))}
+        <a href="#/arena" target="_blank" rel="noreferrer">
+          🎮 Abrir Arena (fonte OBS)
+        </a>
+      </nav>
+      <div className="admin-content">
+        <Outlet />
+      </div>
+    </div>
+  );
+}
