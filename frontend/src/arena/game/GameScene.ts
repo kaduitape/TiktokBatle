@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { API_BASE } from "../../api/client";
 import type { AttackMessage, ArenaMessage, CharacterPayload, PlayerJoinedMessage, StateSyncMessage } from "../../types/events";
+import { AudioManager } from "./managers/AudioManager";
 import { AvatarManager } from "./managers/AvatarManager";
 import { ComboManager } from "./managers/ComboManager";
 import { EffectsManager } from "./managers/EffectsManager";
@@ -32,6 +33,7 @@ export default class GameScene extends Phaser.Scene {
   private xp!: XPManager;
   private ranking: RankingManager | null = null;
   private feed!: FeedManager;
+  private audio!: AudioManager;
 
   private charSpriteA!: Phaser.GameObjects.Image | Phaser.GameObjects.Text;
   private charSpriteB!: Phaser.GameObjects.Image | Phaser.GameObjects.Text;
@@ -79,6 +81,8 @@ export default class GameScene extends Phaser.Scene {
     this.combos = new ComboManager(this.effects);
     this.xp = new XPManager(this);
     this.feed = new FeedManager(this);
+    this.audio = new AudioManager();
+    this.audio.init();
 
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();
@@ -98,6 +102,41 @@ export default class GameScene extends Phaser.Scene {
       case "heal":
         this.handleAttack(msg as AttackMessage);
         break;
+      case "sudden_death":
+        this.effects.bannerText("🔥 MORTE SÚBITA 🔥", ARENA_WIDTH / 2, ARENA_HEIGHT / 2 - 200, "#ff3333", 56);
+        break;
+      case "new_round_countdown":
+        this.showCountdown(msg.seconds);
+        break;
+      case "battle_restarted":
+        this.victoryShown = false;
+        this.xp.update(msg.xp.a, msg.xp.b);
+        this.audio.updateDanger(1, 1, false);
+        break;
+    }
+  }
+
+  private countdownLabel: Phaser.GameObjects.Text | null = null;
+  private showCountdown(seconds: number) {
+    if (!this.countdownLabel) {
+      this.countdownLabel = this.add
+        .text(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "", {
+          fontFamily: "Segoe UI, sans-serif",
+          fontSize: "90px",
+          fontStyle: "bold",
+          color: "#ffffff",
+          stroke: "#000",
+          strokeThickness: 8,
+        })
+        .setOrigin(0.5)
+        .setDepth(99);
+    }
+    this.countdownLabel.setText(seconds > 0 ? `NOVA BATALHA EM: ${seconds}` : "");
+    if (seconds <= 1) {
+      this.time.delayedCall(900, () => {
+        this.countdownLabel?.destroy();
+        this.countdownLabel = null;
+      });
     }
   }
 
@@ -177,6 +216,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.xp.init(msg.side_a.name, msg.side_a.team_color, msg.side_b.name, msg.side_b.team_color, msg.side_a.xp_max, msg.side_b.xp_max);
     this.xp.update(msg.xp.a, msg.xp.b);
+    this.audio.updateDanger(msg.xp.a / msg.side_a.xp_max, msg.xp.b / msg.side_b.xp_max, !!msg.winner_side);
 
     this.ranking = new RankingManager(this, msg.session_id);
 
@@ -221,8 +261,30 @@ export default class GameScene extends Phaser.Scene {
       this.effects.floatingNumber(target.x, target.y - 40, `${sign}${Math.round(msg.xp_delta)}`, color);
 
     const tier = msg.combo.tier_animation;
+    const showNumberIfAny = () => {
+      if (msg.xp_delta !== 0) showNumber();
+    };
 
-    if (isHeal) {
+    if (msg.gift.action_type === "special" && msg.gift.animation_key === "meteor") {
+      this.effects.bannerText(`☄️ ${displayName} ATIVOU METEORO!`, target.x, target.y - 320, "#ff9955", 34);
+      this.missiles.meteor(target.x, target.y, showNumberIfAny);
+    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "lightning") {
+      this.missiles.lightning(target.x, target.y, showNumberIfAny);
+    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "airstrike") {
+      this.missiles.airstrike(target.y - 320, target.x, showNumberIfAny);
+    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "hurricane") {
+      this.effects.bannerText(`🌪️ FURACÃO — ${displayName}`, target.x, 480, "#8fd9ff", 38);
+      this.avatarManager.spinAll(0.28);
+      this.time.delayedCall(3000, () => this.avatarManager.spinAll(0));
+    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "shockwave") {
+      this.effects.bannerText(`💥 ONDA DE CHOQUE`, target.x, 480, "#ffcc66", 38);
+      this.effects.flash(target.x, target.y, 140, 0xffffff, 0.7);
+      this.effects.shake(0.02, 250);
+      this.avatarManager.applyRadialForce(target.x, target.y, 0.07, 520);
+    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "giant") {
+      this.effects.bannerText(`${displayName} FICOU GIGANTE!`, target.x, 480, "#ffd700", 34);
+      this.avatarManager.makeGiant(msg.player.user_id);
+    } else if (isHeal) {
       const big = msg.gift.action_type === "super_heal" || tier === "special" || tier === "bazooka";
       this.heals.fireHeal(from.x, from.y, target.x, target.y, big, showNumber);
     } else if (msg.gift.action_type === "missile" || tier === "bazooka" || tier === "special") {
@@ -234,16 +296,30 @@ export default class GameScene extends Phaser.Scene {
       this.projectiles.fireShot(from.x, from.y, target.x, target.y, showNumber);
     }
 
+    this.playSfxFor(msg);
+
     if (msg.combo.count >= 10) {
       this.combos.announce(displayName, msg.combo.count, msg.combo.tier_label);
+      this.audio.combo();
     }
 
     this.feed.push(`${msg.gift.icon} ${displayName} x${msg.quantity} ${sign}${Math.abs(Math.round(perUnit * msg.quantity))}`);
 
     this.xp.update(msg.xp.a, msg.xp.b);
+    this.audio.updateDanger(msg.xp.a / msg.xp_max.a, msg.xp.b / msg.xp_max.b, !!msg.winner_side);
 
     if (msg.winner_side) {
       this.showVictory(msg.winner_side);
+    }
+  }
+
+  private playSfxFor(msg: AttackMessage) {
+    if (msg.type === "heal") {
+      this.audio.heal();
+    } else if (msg.gift.action_type === "missile" || msg.gift.action_type === "special") {
+      this.audio.missile();
+    } else {
+      this.audio.shot();
     }
   }
 
@@ -251,6 +327,7 @@ export default class GameScene extends Phaser.Scene {
   private showVictory(side: string) {
     if (this.victoryShown) return;
     this.victoryShown = true;
+    this.audio.victoryFanfare();
     const meta = side === "A" ? this.sideAMeta : this.sideBMeta;
     this.effects.bannerText("🏆 VITÓRIA!", ARENA_WIDTH / 2, ARENA_HEIGHT / 2 - 60, "#ffd700", 64);
     this.effects.bannerText(meta.name.toUpperCase(), ARENA_WIDTH / 2, ARENA_HEIGHT / 2 + 10, "#ffffff", 40);

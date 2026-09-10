@@ -2,9 +2,12 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const links = [
   { to: "/admin", label: "Dashboard", end: true },
+  { to: "/admin/live", label: "Live" },
   { to: "/admin/battles", label: "Batalhas" },
   { to: "/admin/characters", label: "Personagens" },
   { to: "/admin/gifts", label: "Presentes" },
+  { to: "/admin/editor", label: "Editor de Arena" },
+  { to: "/admin/music", label: "Músicas" },
   { to: "/admin/simulator", label: "Simulador" },
   { to: "/admin/ranking", label: "Ranking" },
 ];

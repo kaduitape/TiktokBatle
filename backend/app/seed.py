@@ -24,6 +24,21 @@ DEFAULT_GIFTS = [
          target_side="A", animation_key="super_heal", sound_key="super_heal"),
     dict(gift_key="teddy_bear", name="Ursinho", icon="🧸", action_type="super_heal", value=100,
          target_side="B", animation_key="super_heal", sound_key="super_heal"),
+    # Special attacks (spec sections 20-25). animation_key is what the
+    # arena routes on -- admins can freely clone any of these with
+    # target_side="B" to mirror the attack for the other side.
+    dict(gift_key="meteor_strike", name="Meteoro", icon="☄️", action_type="special", value=-50,
+         target_side="A", animation_key="meteor", sound_key="meteor", multiplier=1.0),
+    dict(gift_key="lightning_strike", name="Raio", icon="⚡", action_type="special", value=-25,
+         target_side="A", animation_key="lightning", sound_key="lightning", multiplier=1.0),
+    dict(gift_key="airstrike", name="Ataque Aéreo", icon="✈️", action_type="special", value=-30,
+         target_side="A", animation_key="airstrike", sound_key="airstrike", multiplier=1.0),
+    dict(gift_key="hurricane", name="Furacão", icon="🌪️", action_type="special", value=0,
+         target_side="A", animation_key="hurricane", sound_key="hurricane", multiplier=1.0),
+    dict(gift_key="shockwave", name="Onda de Choque", icon="💥", action_type="special", value=0,
+         target_side="A", animation_key="shockwave", sound_key="shockwave", multiplier=1.0),
+    dict(gift_key="giant_avatar", name="Avatar Gigante", icon="🦣", action_type="special", value=0,
+         target_side="A", animation_key="giant", sound_key="giant", multiplier=1.0),
 ]
 
 DEFAULT_COMBO_TIERS = [
@@ -41,17 +56,22 @@ DEFAULT_CHARACTERS = [
 
 
 async def run_seed(db: AsyncSession) -> None:
-    has_gifts = (await db.execute(select(Gift.id).limit(1))).first()
-    if not has_gifts:
-        for g in DEFAULT_GIFTS:
-            db.add(Gift(**g))
-        logger.info("seeded %d default gifts", len(DEFAULT_GIFTS))
+    # Additive per-item: re-running seed (e.g. after an upgrade that adds new
+    # default gifts) never touches gifts/tiers an admin already customized,
+    # it only fills in ones that don't exist yet by key/threshold.
+    existing_gift_keys = {row[0] for row in (await db.execute(select(Gift.gift_key)))}
+    new_gifts = [g for g in DEFAULT_GIFTS if g["gift_key"] not in existing_gift_keys]
+    for g in new_gifts:
+        db.add(Gift(**g))
+    if new_gifts:
+        logger.info("seeded %d default gifts", len(new_gifts))
 
-    has_tiers = (await db.execute(select(ComboTier.id).limit(1))).first()
-    if not has_tiers:
-        for t in DEFAULT_COMBO_TIERS:
-            db.add(ComboTier(**t))
-        logger.info("seeded %d default combo tiers", len(DEFAULT_COMBO_TIERS))
+    existing_thresholds = {row[0] for row in (await db.execute(select(ComboTier.threshold)))}
+    new_tiers = [t for t in DEFAULT_COMBO_TIERS if t["threshold"] not in existing_thresholds]
+    for t in new_tiers:
+        db.add(ComboTier(**t))
+    if new_tiers:
+        logger.info("seeded %d default combo tiers", len(new_tiers))
 
     has_characters = (await db.execute(select(Character.id).limit(1))).first()
     if not has_characters:

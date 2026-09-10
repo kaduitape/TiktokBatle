@@ -35,11 +35,13 @@ const empty = {
 
 export default function Battles() {
   const [battles, setBattles] = useState<Battle[]>([]);
+  const [templates, setTemplates] = useState<Battle[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [form, setForm] = useState<typeof empty & { id?: string }>(empty);
 
   const load = () => {
     api.get<Battle[]>("/api/battles").then(setBattles);
+    api.get<Battle[]>("/api/battles/templates").then(setTemplates);
     api.get<Character[]>("/api/characters").then(setCharacters);
   };
   useEffect(load, []);
@@ -52,6 +54,25 @@ export default function Battles() {
   };
 
   const remove = async (id: string) => {
+    await api.del(`/api/battles/${id}`);
+    load();
+  };
+
+  const saveAsTemplate = async (id: string) => {
+    const templateName = window.prompt("Nome do modelo (ex: Política, Futebol, Games)…");
+    if (!templateName) return;
+    await api.post(`/api/battles/${id}/save-as-template?template_name=${encodeURIComponent(templateName)}`);
+    load();
+  };
+
+  const instantiateTemplate = async (id: string) => {
+    const name = window.prompt("Nome da nova batalha baseada nesse modelo…");
+    if (!name) return;
+    await api.post(`/api/battles/from-template/${id}?name=${encodeURIComponent(name)}`);
+    load();
+  };
+
+  const removeTemplate = async (id: string) => {
     await api.del(`/api/battles/${id}`);
     load();
   };
@@ -109,8 +130,20 @@ export default function Battles() {
             <label>
               <input type="checkbox" checked={form.sudden_death_enabled} onChange={(e) => setForm({ ...form, sudden_death_enabled: e.target.checked })} /> Morte súbita ao acabar o tempo
             </label>
+            {form.sudden_death_enabled && (
+              <>
+                <label>Multiplicador de dano na morte súbita</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min={1}
+                  value={form.sudden_death_multiplier}
+                  onChange={(e) => setForm({ ...form, sudden_death_multiplier: Number(e.target.value) })}
+                />
+              </>
+            )}
             <label>
-              <input type="checkbox" checked={form.auto_restart} onChange={(e) => setForm({ ...form, auto_restart: e.target.checked })} /> Reinício automático
+              <input type="checkbox" checked={form.auto_restart} onChange={(e) => setForm({ ...form, auto_restart: e.target.checked })} /> Reinício automático (nova rodada com contagem regressiva)
             </label>
           </div>
         </div>
@@ -140,7 +173,30 @@ export default function Battles() {
                 <td className="row">
                   <a href={`#/arena?battle=${b.id}`} target="_blank" rel="noreferrer"><button>▶ Abrir</button></a>
                   <button className="secondary" onClick={() => setForm(b as any)}>Editar</button>
+                  <button className="secondary" onClick={() => saveAsTemplate(b.id)}>💾 Salvar como modelo</button>
                   <button className="secondary" onClick={() => remove(b.id)}>Excluir</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card">
+        <h3>Modelos salvos</h3>
+        <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+          Configurações completas reutilizáveis (ex: "Política", "Futebol", "Games") — qualquer nome que o admin quiser.
+        </p>
+        {templates.length === 0 && <p style={{ color: "#6a6a8a", fontSize: 13 }}>Nenhum modelo salvo ainda.</p>}
+        <table>
+          <tbody>
+            {templates.map((t) => (
+              <tr key={t.id}>
+                <td>{(t as any).template_name || t.name}</td>
+                <td>{charName(t.side_a_character_id)} x {charName(t.side_b_character_id)}</td>
+                <td className="row">
+                  <button onClick={() => instantiateTemplate(t.id)}>▶ Usar este modelo</button>
+                  <button className="secondary" onClick={() => removeTemplate(t.id)}>Excluir</button>
                 </td>
               </tr>
             ))}

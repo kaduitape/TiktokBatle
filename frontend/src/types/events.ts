@@ -55,6 +55,7 @@ export interface AttackMessage {
   xp_max: { a: number; b: number };
   winner_side: string | null;
   status: string;
+  sudden_death: boolean;
 }
 
 export interface PlayerJoinedMessage {
@@ -63,4 +64,28 @@ export interface PlayerJoinedMessage {
   player: PlayerPayload;
 }
 
-export type ArenaMessage = StateSyncMessage | AttackMessage | PlayerJoinedMessage;
+export interface SuddenDeathMessage {
+  type: "sudden_death";
+  session_id: string;
+}
+
+export interface NewRoundCountdownMessage {
+  type: "new_round_countdown";
+  session_id: string;
+  seconds: number;
+}
+
+export interface BattleRestartedMessage {
+  type: "battle_restarted";
+  session_id: string;
+  xp: { a: number; b: number };
+  xp_max: { a: number; b: number };
+}
+
+export type ArenaMessage =
+  | StateSyncMessage
+  | AttackMessage
+  | PlayerJoinedMessage
+  | SuddenDeathMessage
+  | NewRoundCountdownMessage
+  | BattleRestartedMessage;

@@ -72,5 +72,8 @@ class TikTokProvider(LiveEventProvider):
         if client is not None:
             await client.disconnect()
 
+    def is_connected(self, session_id: str) -> bool:
+        return session_id in self._clients
+
 
 tiktok_provider = TikTokProvider()

@@ -5,6 +5,7 @@ from app.models.models import (
     Character,
     ComboTier,
     Gift,
+    MusicTrack,
     Player,
     Setting,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "Character",
     "ComboTier",
     "Gift",
+    "MusicTrack",
     "Player",
     "Setting",
 ]
