@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -42,6 +43,8 @@ class GamePipeline:
             battle = await db.get(Battle, session.battle_id)
             await gift_cache.ensure_loaded(db)
 
+            sudden_death_triggered = battle_manager.check_sudden_death(session, battle)
+
             if event.type == "gift_received":
                 message = await self._handle_gift(db, session, battle, event)
             elif event.type == "viewer_join":
@@ -49,11 +52,51 @@ class GamePipeline:
             else:
                 message = None
 
+            auto_restart = bool(battle.auto_restart)
+            battle_id = battle.id
             await db.commit()
+
+        if sudden_death_triggered:
+            await connection_manager.broadcast(
+                session_id, {"type": "sudden_death", "session_id": session_id}
+            )
 
         if message:
             await connection_manager.broadcast(session_id, message)
+
+        if message and message.get("winner_side") and auto_restart:
+            asyncio.create_task(self._auto_restart(session_id, battle_id))
+
         return message or {}
+
+    async def _auto_restart(self, session_id: str, battle_id: str, countdown: int = 10) -> None:
+        """Spec section 40: 'NOVA BATALHA EM: 10 9 8 7 ...' then restart in
+        place -- same session_id, so connected arenas don't need to
+        reconnect."""
+        for remaining in range(countdown, 0, -1):
+            await connection_manager.broadcast(
+                session_id, {"type": "new_round_countdown", "session_id": session_id, "seconds": remaining}
+            )
+            await asyncio.sleep(1)
+
+        async with AsyncSessionLocal() as db:
+            session = await db.get(BattleSession, session_id)
+            battle = await db.get(Battle, battle_id)
+            if session is None or battle is None:
+                return
+            side_a_char = await db.get(Character, battle.side_a_character_id)
+            side_b_char = await db.get(Character, battle.side_b_character_id)
+            await battle_manager.restart_session(db, session, battle)
+            await db.commit()
+
+            message = {
+                "type": "battle_restarted",
+                "session_id": session.id,
+                "xp": {"a": session.side_a_xp, "b": session.side_b_xp},
+                "xp_max": {"a": side_a_char.xp_max, "b": side_b_char.xp_max},
+            }
+
+        await connection_manager.broadcast(session_id, message)
 
     async def _handle_gift(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
@@ -83,12 +126,16 @@ class GamePipeline:
             team=action.attacker_team,
         )
 
-        new_xp = xp_manager.apply(session, action.target_side, action.total_xp_delta, side_a_char, side_b_char)
+        sd_multiplier = battle_manager.sudden_death_multiplier(session, battle)
+        xp_manager.apply(
+            session, action.target_side, action.total_xp_delta, side_a_char, side_b_char, multiplier=sd_multiplier
+        )
+        effective_delta = action.total_xp_delta * sd_multiplier
 
-        if action.total_xp_delta < 0:
-            player.damage_total += abs(action.total_xp_delta)
+        if effective_delta < 0:
+            player.damage_total += abs(effective_delta)
         else:
-            player.heal_total += action.total_xp_delta
+            player.heal_total += effective_delta
         player.gifts_total += quantity
         player.combo_count = combo_count
         player.last_interaction = datetime.now(timezone.utc)
@@ -101,7 +148,7 @@ class GamePipeline:
                 event_type="gift",
                 quantity=quantity,
                 combo_count=combo_count,
-                xp_delta=action.total_xp_delta,
+                xp_delta=effective_delta,
                 target_side=action.target_side,
                 payload={"gift_key": gift.gift_key},
             )
@@ -112,7 +159,7 @@ class GamePipeline:
         await db.flush()
 
         return {
-            "type": "attack" if action.total_xp_delta < 0 else "heal",
+            "type": "attack" if effective_delta < 0 else "heal",
             "session_id": session.id,
             "player": {
                 "id": player.id,
@@ -137,11 +184,12 @@ class GamePipeline:
                 "tier_animation": combo_tier.animation_key if combo_tier else None,
             },
             "target_side": action.target_side,
-            "xp_delta": action.total_xp_delta,
+            "xp_delta": effective_delta,
             "xp": {"a": session.side_a_xp, "b": session.side_b_xp},
             "xp_max": {"a": side_a_char.xp_max, "b": side_b_char.xp_max},
             "winner_side": winner,
             "status": session.status,
+            "sudden_death": session.status == "sudden_death",
         }
 
     async def _handle_join(

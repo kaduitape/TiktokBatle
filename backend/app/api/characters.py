@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import require_admin
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import Character
@@ -19,7 +20,7 @@ async def list_characters(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=CharacterOut)
-async def create_character(body: CharacterIn, db: AsyncSession = Depends(get_db)):
+async def create_character(body: CharacterIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     character = Character(**body.model_dump())
     db.add(character)
     await db.commit()
@@ -36,7 +37,9 @@ async def get_character(character_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{character_id}", response_model=CharacterOut)
-async def update_character(character_id: str, body: CharacterIn, db: AsyncSession = Depends(get_db)):
+async def update_character(
+    character_id: str, body: CharacterIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
     character = await db.get(Character, character_id)
     if not character:
         raise HTTPException(404, "character not found")
@@ -48,7 +51,7 @@ async def update_character(character_id: str, body: CharacterIn, db: AsyncSessio
 
 
 @router.delete("/{character_id}")
-async def delete_character(character_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_character(character_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     character = await db.get(Character, character_id)
     if not character:
         raise HTTPException(404, "character not found")
@@ -58,7 +61,7 @@ async def delete_character(character_id: str, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/upload")
-async def upload_character_asset(file: UploadFile):
+async def upload_character_asset(file: UploadFile, _: str = Depends(require_admin)):
     os.makedirs(settings.upload_dir, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1] or ".png"
     filename = f"{uuid.uuid4().hex}{ext}"

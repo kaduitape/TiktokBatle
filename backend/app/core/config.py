@@ -1,3 +1,5 @@
+import secrets
+
 from pydantic_settings import BaseSettings
 
 
@@ -17,6 +19,17 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     upload_dir: str = "/app/uploads"
+
+    # Admin panel auth. Change these via env vars in any real deployment --
+    # the defaults exist only so a fresh checkout boots without extra setup.
+    admin_username: str = "admin"
+    admin_password: str = "changeme"
+    # Signs admin session tokens. If left unset, a random key is generated
+    # per process start, which means every running backend instance issues
+    # tokens only it can verify and existing sessions are invalidated on
+    # restart -- fine for a single container, but set BATTLE_SECRET_KEY
+    # explicitly for multi-instance or persistent-session deployments.
+    secret_key: str = secrets.token_hex(32)
 
     class Config:
         env_prefix = "BATTLE_"

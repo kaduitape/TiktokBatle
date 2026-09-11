@@ -141,6 +141,20 @@ class SessionOut(BaseModel):
         from_attributes = True
 
 
+class MusicTrackIn(BaseModel):
+    name: str
+    file_url: str
+    category: Literal["normal", "danger", "victory", "defeat"] = "normal"
+    order_index: int = 0
+
+
+class MusicTrackOut(MusicTrackIn):
+    id: str
+
+    class Config:
+        from_attributes = True
+
+
 class RankingEntry(BaseModel):
     user_id: str
     username: str

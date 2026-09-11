@@ -180,6 +180,21 @@ class BattleEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MusicTrack(Base):
+    """One uploaded BGM track in the playlist, tagged by the mood it plays
+    for (spec section 33: normal/perigo/vitória/derrota)."""
+
+    __tablename__ = "music_tracks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    file_url: Mapped[str] = mapped_column(String, nullable=False)
+    category: Mapped[str] = mapped_column(String, default="normal")  # normal|danger|victory|defeat
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Small global key/value store (limits, toggles, mixer volumes, etc)."""
 

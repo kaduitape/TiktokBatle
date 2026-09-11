@@ -1,7 +1,8 @@
 import random
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.auth import require_admin
 from app.providers.simulation_provider import simulation_provider
 from app.schemas.schemas import SimulateGiftRequest
 
@@ -14,7 +15,7 @@ _FAKE_USERNAMES = [
 
 
 @router.post("/gift")
-async def simulate_gift(body: SimulateGiftRequest):
+async def simulate_gift(body: SimulateGiftRequest, _: str = Depends(require_admin)):
     """Executes exactly the same pipeline a real TikTok gift would trigger
     (spec section 45: no separate simulated-vs-real animation logic)."""
     user_id = f"sim-{body.username}"
@@ -31,7 +32,7 @@ async def simulate_gift(body: SimulateGiftRequest):
 
 
 @router.post("/join")
-async def simulate_join(session_id: str, username: str | None = None):
+async def simulate_join(session_id: str, username: str | None = None, _: str = Depends(require_admin)):
     name = username or random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999))
     await simulation_provider.simulate_join(
         session_id=session_id,
@@ -44,7 +45,9 @@ async def simulate_join(session_id: str, username: str | None = None):
 
 
 @router.post("/stress")
-async def simulate_stress(session_id: str, gift_keys: list[str], user_count: int = 100):
+async def simulate_stress(
+    session_id: str, gift_keys: list[str], user_count: int = 100, _: str = Depends(require_admin)
+):
     """Section 46: SIMULAR LIVE LOTADA. Generates a burst of joins and
     gifts through the normal pipeline so FPS/latency/queue depth can be
     observed under load."""

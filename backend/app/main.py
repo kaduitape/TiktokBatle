@@ -6,10 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import battles, characters, gifts, players, simulator, ws_routes
+from app.api import auth as auth_routes
+from app.api import battles, characters, gifts, live, music, players, settings_routes, simulator, ws_routes
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, init_db
 from app.providers.simulation_provider import simulation_provider
+from app.providers.tiktok_provider import tiktok_provider
 from app.seed import run_seed
 from app.services.event_queue import event_queue
 from app.services.gift_cache import gift_cache
@@ -17,17 +19,27 @@ from app.services.gift_cache import gift_cache
 logging.basicConfig(level=logging.INFO)
 
 
+logger = logging.getLogger("startup")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    if settings.admin_password == "changeme":
+        logger.warning(
+            "BATTLE_ADMIN_PASSWORD is unset -- using the default admin/changeme credentials. "
+            "Set BATTLE_ADMIN_USERNAME/BATTLE_ADMIN_PASSWORD before exposing this deployment."
+        )
 
     async with AsyncSessionLocal() as db:
         await run_seed(db)
         await gift_cache.refresh(db)
 
-    # Every provider (simulator now, TikTok later) feeds the same queue,
+    # Every provider (simulator, real TikTok LIVE) feeds the same queue,
     # which drains into the one GamePipeline entry point (section 49/56).
     simulation_provider.on_event(event_queue.enqueue)
+    tiktok_provider.on_event(event_queue.enqueue)
 
     os.makedirs(settings.upload_dir, exist_ok=True)
 
@@ -47,12 +59,16 @@ app.add_middleware(
 os.makedirs(settings.upload_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
+app.include_router(auth_routes.router)
 app.include_router(battles.router)
 app.include_router(characters.router)
 app.include_router(gifts.router)
 app.include_router(gifts.combo_router)
 app.include_router(players.router)
 app.include_router(simulator.router)
+app.include_router(live.router)
+app.include_router(music.router)
+app.include_router(settings_routes.router)
 app.include_router(ws_routes.router)
 
 
