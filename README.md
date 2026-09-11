@@ -35,10 +35,36 @@ docker compose up --build
 - Painel admin: http://localhost:8080/#/admin
 - Arena (fonte de vídeo para OBS): http://localhost:8080/#/arena?battle=<id>
 
-Na primeira subida o backend semeia automaticamente: 8 presentes padrão
-(seção 12 do prompt), 5 tiers de combo, 2 personagens genéricos ("Lado A" /
-"Lado B") e uma batalha padrão — assim o fluxo funciona imediatamente sem
-nenhum cadastro manual.
+Na primeira subida o backend semeia automaticamente: 14 presentes padrão
+(8 da seção 12 + 6 ataques especiais das seções 20-25), 5 tiers de combo,
+2 personagens genéricos ("Lado A" / "Lado B") e uma batalha padrão — assim
+o fluxo funciona imediatamente sem nenhum cadastro manual.
+
+### Login do painel admin
+
+O painel (`/admin/*`) fica atrás de login — a **Arena** (fonte OBS) nunca
+precisa de login, só as ações administrativas (CRUD, simulador, live,
+mixer) exigem token. Credenciais padrão para o primeiro acesso:
+
+```
+usuário: admin
+senha:   changeme
+```
+
+**Troque isso antes de expor a instância**, via variáveis de ambiente:
+
+```bash
+BATTLE_ADMIN_USERNAME=seu_usuario
+BATTLE_ADMIN_PASSWORD=uma_senha_forte
+BATTLE_SECRET_KEY=uma_string_aleatoria_longa   # assina os tokens de sessão
+```
+
+Se `BATTLE_SECRET_KEY` não for definida, uma chave aleatória é gerada a
+cada início do processo — funciona bem para um único container, mas
+invalida sessões abertas a cada reinício e não funciona com múltiplas
+réplicas atrás de um load balancer (defina a variável explicitamente
+nesses casos). O backend loga um aviso no startup se a senha padrão ainda
+estiver em uso.
 
 ### Rodando localmente sem Docker
 
@@ -101,6 +127,18 @@ Frontend: `frontend/src/{arena/game/managers,admin/pages}`
 presente, batalha ou música é hardcoded; tudo é CRUD via `/api/*` e o
 painel admin. `settings` é um KV genérico (hoje usado para o mixer de
 áudio, chave `audio_mixer`).
+
+### Fronteira de autenticação
+
+Token HMAC assinado no backend (`app/core/auth.py`, sem dependência nova),
+emitido por `POST /api/auth/login` e enviado como `Authorization: Bearer
+<token>` pelo painel admin. A regra é simples: **qualquer ação de escrita
+do admin exige token; tudo que a Arena (fonte OBS, sem login) precisa ler
+continua público** — listar batalhas/presentes/músicas/mixer, iniciar uma
+sessão de batalha, o WebSocket `/ws/arena/{session_id}` e o ranking. CRUD
+de personagens/batalhas/presentes/combos/músicas, upload de arquivos,
+simulador, live (conectar/desconectar TikTok) e reiniciar/templatizar uma
+batalha exigem token.
 
 ## Status por fase (ordem do prompt, seção 55)
 

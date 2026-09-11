@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { clearToken, isAuthenticated } from "../auth";
 
 const links = [
   { to: "/admin", label: "Dashboard", end: true },
@@ -13,6 +14,17 @@ const links = [
 ];
 
 export default function AdminLayout() {
+  const navigate = useNavigate();
+
+  if (!isAuthenticated()) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  const logout = () => {
+    clearToken();
+    navigate("/admin/login", { replace: true });
+  };
+
   return (
     <div className="admin-layout">
       <nav className="admin-nav">
@@ -24,6 +36,9 @@ export default function AdminLayout() {
         ))}
         <a href="#/arena" target="_blank" rel="noreferrer">
           🎮 Abrir Arena (fonte OBS)
+        </a>
+        <a href="#" onClick={(e) => { e.preventDefault(); logout(); }}>
+          🚪 Sair
         </a>
       </nav>
       <div className="admin-content">

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import require_admin
 from app.core.database import get_db
 from app.models.models import Battle, Character
 from app.schemas.schemas import BattleIn, BattleOut, SessionOut
@@ -36,7 +37,7 @@ async def list_templates(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=BattleOut)
-async def create_battle(body: BattleIn, db: AsyncSession = Depends(get_db)):
+async def create_battle(body: BattleIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     for cid in (body.side_a_character_id, body.side_b_character_id):
         if not await db.get(Character, cid):
             raise HTTPException(400, f"character {cid} not found")
@@ -56,7 +57,9 @@ async def get_battle(battle_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{battle_id}", response_model=BattleOut)
-async def update_battle(battle_id: str, body: BattleIn, db: AsyncSession = Depends(get_db)):
+async def update_battle(
+    battle_id: str, body: BattleIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
     battle = await db.get(Battle, battle_id)
     if not battle:
         raise HTTPException(404, "battle not found")
@@ -68,7 +71,7 @@ async def update_battle(battle_id: str, body: BattleIn, db: AsyncSession = Depen
 
 
 @router.delete("/{battle_id}")
-async def delete_battle(battle_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_battle(battle_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     battle = await db.get(Battle, battle_id)
     if not battle:
         raise HTTPException(404, "battle not found")
@@ -102,7 +105,7 @@ async def get_active_session(battle_id: str, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/{battle_id}/restart", response_model=SessionOut)
-async def restart_battle(battle_id: str, db: AsyncSession = Depends(get_db)):
+async def restart_battle(battle_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     """Manual 'nova rodada' (section 40): resets XP in place on the
     existing session so connected arenas don't need to reconnect, or
     starts a fresh session if none exists yet."""
@@ -134,7 +137,9 @@ async def restart_battle(battle_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{battle_id}/save-as-template", response_model=BattleOut)
-async def save_as_template(battle_id: str, template_name: str, db: AsyncSession = Depends(get_db)):
+async def save_as_template(
+    battle_id: str, template_name: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
     """Spec section 44: clones this battle's full configuration into a
     reusable template row an admin can instantiate later under any name."""
     battle = await db.get(Battle, battle_id)
@@ -162,7 +167,9 @@ async def save_as_template(battle_id: str, template_name: str, db: AsyncSession 
 
 
 @router.post("/from-template/{template_id}", response_model=BattleOut)
-async def instantiate_template(template_id: str, name: str, db: AsyncSession = Depends(get_db)):
+async def instantiate_template(
+    template_id: str, name: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
     template = await db.get(Battle, template_id)
     if not template or not template.is_template:
         raise HTTPException(404, "template not found")

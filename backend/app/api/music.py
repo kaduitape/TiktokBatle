@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import require_admin
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import MusicTrack
@@ -20,7 +21,7 @@ async def list_tracks(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=MusicTrackOut)
-async def create_track(body: MusicTrackIn, db: AsyncSession = Depends(get_db)):
+async def create_track(body: MusicTrackIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     track = MusicTrack(**body.model_dump())
     db.add(track)
     await db.commit()
@@ -29,7 +30,7 @@ async def create_track(body: MusicTrackIn, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{track_id}")
-async def delete_track(track_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_track(track_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
     track = await db.get(MusicTrack, track_id)
     if not track:
         raise HTTPException(404, "track not found")
@@ -39,7 +40,7 @@ async def delete_track(track_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/upload")
-async def upload_track(file: UploadFile):
+async def upload_track(file: UploadFile, _: str = Depends(require_admin)):
     os.makedirs(settings.upload_dir, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1] or ".mp3"
     filename = f"{uuid.uuid4().hex}{ext}"

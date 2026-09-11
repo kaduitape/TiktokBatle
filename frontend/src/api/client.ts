@@ -1,12 +1,30 @@
+import { clearToken, getToken } from "../auth";
+
 export const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
 
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
 
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function handleUnauthorized(): void {
+  clearToken();
+  if (!window.location.hash.startsWith("#/admin/login")) {
+    window.location.hash = "#/admin/login";
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     ...options,
   });
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error("401 not authenticated");
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
@@ -25,7 +43,11 @@ export const api = {
   upload: async (path: string, file: File): Promise<{ url: string }> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: form });
+    const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: form, headers: authHeaders() });
+    if (res.status === 401) {
+      handleUnauthorized();
+      throw new Error("401 not authenticated");
+    }
     if (!res.ok) throw new Error(`upload failed: ${res.status}`);
     return res.json();
   },

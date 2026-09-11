@@ -1,9 +1,10 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core.auth import require_admin
 from app.providers.tiktok_provider import tiktok_provider
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -15,7 +16,7 @@ class ConnectRequest(BaseModel):
 
 
 @router.post("/{session_id}/connect")
-async def connect_live(session_id: str, body: ConnectRequest):
+async def connect_live(session_id: str, body: ConnectRequest, _: str = Depends(require_admin)):
     """Phase 7 of the spec's MVP ordering: only meant to be used once the
     simulator has already proven the pipeline end-to-end. Runs the
     TikTokLive client in a background task since it holds its own
@@ -34,11 +35,11 @@ async def connect_live(session_id: str, body: ConnectRequest):
 
 
 @router.post("/{session_id}/disconnect")
-async def disconnect_live(session_id: str):
+async def disconnect_live(session_id: str, _: str = Depends(require_admin)):
     await tiktok_provider.stop(session_id)
     return {"ok": True}
 
 
 @router.get("/{session_id}/status")
-async def live_status(session_id: str):
+async def live_status(session_id: str, _: str = Depends(require_admin)):
     return {"connected": tiktok_provider.is_connected(session_id)}

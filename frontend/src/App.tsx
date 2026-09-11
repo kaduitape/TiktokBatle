@@ -6,6 +6,7 @@ import Dashboard from "./admin/pages/Dashboard";
 import Editor from "./admin/pages/Editor";
 import Gifts from "./admin/pages/Gifts";
 import Live from "./admin/pages/Live";
+import Login from "./admin/pages/Login";
 import Music from "./admin/pages/Music";
 import Ranking from "./admin/pages/Ranking";
 import Simulator from "./admin/pages/Simulator";
@@ -17,6 +18,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/admin" replace />} />
         <Route path="/arena" element={<ArenaPage />} />
+        <Route path="/admin/login" element={<Login />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="live" element={<Live />} />

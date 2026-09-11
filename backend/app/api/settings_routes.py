@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import require_admin
 from app.core.database import get_db
 from app.models.models import Setting
 
@@ -29,7 +30,9 @@ async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{key}")
-async def put_setting(key: str, value: dict[str, Any], db: AsyncSession = Depends(get_db)):
+async def put_setting(
+    key: str, value: dict[str, Any], db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
     row = await db.get(Setting, key)
     if row:
         row.value = value

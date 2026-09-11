@@ -253,7 +253,6 @@ export default class GameScene extends Phaser.Scene {
     const target = this.targetPositionFor(msg.target_side);
     const displayName = (msg.player.nickname || msg.player.username).toUpperCase();
     const isHeal = msg.type === "heal";
-    const perUnit = msg.xp_delta / Math.max(1, msg.quantity);
     const color = isHeal ? "#66ffb2" : "#ff5b5b";
     const sign = isHeal ? "+" : "";
 
@@ -303,7 +302,8 @@ export default class GameScene extends Phaser.Scene {
       this.audio.combo();
     }
 
-    this.feed.push(`${msg.gift.icon} ${displayName} x${msg.quantity} ${sign}${Math.abs(Math.round(perUnit * msg.quantity))}`);
+    const deltaText = msg.xp_delta !== 0 ? ` ${sign}${Math.round(msg.xp_delta)}` : "";
+    this.feed.push(`${msg.gift.icon} ${displayName} x${msg.quantity}${deltaText}`);
 
     this.xp.update(msg.xp.a, msg.xp.b);
     this.audio.updateDanger(msg.xp.a / msg.xp_max.a, msg.xp.b / msg.xp_max.b, !!msg.winner_side);
