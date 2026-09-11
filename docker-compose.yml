@@ -3,15 +3,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: battle
-      POSTGRES_PASSWORD: battle
-      POSTGRES_DB: battle
+      POSTGRES_USER: ${POSTGRES_USER:-battle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
+      POSTGRES_DB: ${POSTGRES_DB:-battle}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U battle"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,37 +17,42 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
 
   backend:
     build: ./backend
     restart: unless-stopped
     environment:
-      BATTLE_DATABASE_URL: postgresql+asyncpg://battle:battle@postgres:5432/battle
-      BATTLE_SYNC_DATABASE_URL: postgresql+psycopg2://battle:battle@postgres:5432/battle
+      BATTLE_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-battle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-battle}
+      BATTLE_SYNC_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-battle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-battle}
       BATTLE_REDIS_URL: redis://redis:6379/0
-      BATTLE_CORS_ORIGINS: '["*"]'
+      BATTLE_CORS_ORIGINS: ${BATTLE_CORS_ORIGINS:-["http://localhost","http://127.0.0.1"]}
+      BATTLE_ADMIN_USERNAME: ${BATTLE_ADMIN_USERNAME:?Defina BATTLE_ADMIN_USERNAME no arquivo .env}
+      BATTLE_ADMIN_PASSWORD: ${BATTLE_ADMIN_PASSWORD:?Defina BATTLE_ADMIN_PASSWORD no arquivo .env}
+      BATTLE_SECRET_KEY: ${BATTLE_SECRET_KEY:?Defina BATTLE_SECRET_KEY no arquivo .env}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-    ports:
-      - "8000:8000"
     volumes:
       - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   frontend:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: http://localhost:8000
+        VITE_API_URL: ${VITE_API_URL:-}
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      - "${HTTP_PORT:-80}:80"
 
 volumes:
   postgres_data:

@@ -1,6 +1,13 @@
 import { clearToken, getToken } from "../auth";
 
-export const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+const configuredApiUrl = (import.meta as any).env?.VITE_API_URL;
+
+// An explicitly empty value is used by the Docker build: nginx proxies API
+// and WebSocket traffic on the same public origin.  Preserve localhost as the
+// convenient default for `npm run dev`, where that proxy does not exist.
+export const API_BASE = configuredApiUrl === ""
+  ? window.location.origin
+  : configuredApiUrl || "http://localhost:8000";
 
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
 

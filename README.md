@@ -28,12 +28,17 @@ fase" abaixo para o detalhe completo do que está e não está pronto.
 ## Rodando
 
 ```bash
-docker compose up --build
+# na primeira execução: copie .env.example para .env e defina os segredos
+docker compose up --build -d
 ```
 
-- Backend: http://localhost:8000 (docs automáticos em `/docs`)
-- Painel admin: http://localhost:8080/#/admin
-- Arena (fonte de vídeo para OBS): http://localhost:8080/#/arena?battle=<id>
+O frontend é o único serviço exposto: http://localhost (ou a porta definida
+em `HTTP_PORT`). Ele encaminha `/api`, `/uploads` e `/ws` internamente para o
+backend — banco, Redis e API não ficam públicos.
+
+- Documentação da API: http://localhost/docs
+- Painel admin: http://localhost/#/admin
+- Arena (fonte de vídeo para OBS): http://localhost/#/arena?battle=<id>
 
 Na primeira subida o backend semeia automaticamente: 14 presentes padrão
 (8 da seção 12 + 6 ataques especiais das seções 20-25), 5 tiers de combo,
@@ -44,14 +49,8 @@ o fluxo funciona imediatamente sem nenhum cadastro manual.
 
 O painel (`/admin/*`) fica atrás de login — a **Arena** (fonte OBS) nunca
 precisa de login, só as ações administrativas (CRUD, simulador, live,
-mixer) exigem token. Credenciais padrão para o primeiro acesso:
-
-```
-usuário: admin
-senha:   changeme
-```
-
-**Troque isso antes de expor a instância**, via variáveis de ambiente:
+mixer) exigem token. Antes da primeira execução, copie `.env.example` para
+`.env` e substitua todos os valores de exemplo, em especial:
 
 ```bash
 BATTLE_ADMIN_USERNAME=seu_usuario
@@ -59,12 +58,8 @@ BATTLE_ADMIN_PASSWORD=uma_senha_forte
 BATTLE_SECRET_KEY=uma_string_aleatoria_longa   # assina os tokens de sessão
 ```
 
-Se `BATTLE_SECRET_KEY` não for definida, uma chave aleatória é gerada a
-cada início do processo — funciona bem para um único container, mas
-invalida sessões abertas a cada reinício e não funciona com múltiplas
-réplicas atrás de um load balancer (defina a variável explicitamente
-nesses casos). O backend loga um aviso no startup se a senha padrão ainda
-estiver em uso.
+O Compose exige essas credenciais para iniciar. O arquivo `.env` é ignorado
+pelo Git e nunca deve ser enviado ao repositório.
 
 ### Rodando localmente sem Docker
 
