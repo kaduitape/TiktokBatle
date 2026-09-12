@@ -29,15 +29,22 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     # Tank war tuning. The team keywords are settings rather than constants so
     # the mode isn't tied to any particular pair of characters -- swap them for
     # whatever the two sides are called on the day.
-    # Balance target: a 1-coin rose chips a soldier, a ~30-coin gift takes one
-    # out, and only the expensive gifts wipe a squad (capped so a single whale
-    # can't end the match in one shot).
+    # Tank war: the viewers chip at the enemy boss's huge health pool, and the
+    # bosses bomb individual viewers back. Balance target with a 1.5M boss: a
+    # 1-coin rose does 500, a 30-coin gift 15k, a 500-coin gift 250k -- so the
+    # boss falls to sustained team effort, not to one whale.
     "tank_war": {
         "team_a_keyword": "P",
         "team_b_keyword": "B",
         "soldier_hp": 150,
-        "damage_per_coin": 8,
-        "max_targets_per_shot": 6,
+        "boss_damage_per_coin": 500,
+        # How often each boss lobs a bomb at the other side, and how hard it
+        # hits. Default wipes a full-health soldier in one go.
+        "bomb_interval_seconds": 12,
+        "bomb_damage": 150,
+        # The bomb picks from the most recently active enemies, so the people
+        # actually playing are the ones getting hit.
+        "bomb_active_pool": 10,
     },
 }
 

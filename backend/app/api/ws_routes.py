@@ -5,8 +5,8 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.models import Battle, BattleSession, Character, Player
+from app.services.battle_loop import battle_loop
 from app.services.team_battle_manager import team_battle_manager
-from app.services.team_combat_loop import team_combat_loop
 from app.ws.connection_manager import connection_manager
 
 router = APIRouter()
@@ -86,9 +86,9 @@ async def arena_socket(websocket: WebSocket, session_id: str):
         if state:
             await websocket.send_json(state)
 
-        # Team PvP fights continuously on a server tick -- run it only while
+        # PvP fights and boss bombs run on a server tick -- only while
         # somebody is actually watching this session.
-        await team_combat_loop.maybe_start_for_session(session_id)
+        await battle_loop.maybe_start_for_session(session_id)
 
         while True:
             # Clients don't need to send anything; this just detects disconnects
@@ -99,4 +99,4 @@ async def arena_socket(websocket: WebSocket, session_id: str):
     finally:
         connection_manager.disconnect(session_id, websocket)
         if connection_manager.connection_count(session_id) == 0:
-            await team_combat_loop.stop(session_id)
+            await battle_loop.stop(session_id)

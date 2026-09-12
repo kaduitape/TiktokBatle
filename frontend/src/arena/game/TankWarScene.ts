@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import type {
   ArenaMessage,
   ArmyTotals,
+  BossBombMessage,
   CharacterPayload,
   PlayerEnlistedMessage,
   PvpPlayerPayload,
@@ -16,6 +17,7 @@ import { FeedManager } from "./managers/FeedManager";
 import { MissileManager } from "./managers/MissileManager";
 import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
+import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
 import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FLOOR_Y, XP_BAR_Y } from "./constants";
 
@@ -34,11 +36,12 @@ interface Gunner {
   facing: 1 | -1;
 }
 
-/** Tank war: the two characters are the gunners and the viewers are their
- * troops. Viewers enlist by typing a keyword in chat, a gift makes the
- * sender's tank swivel and fire, and whoever the shell lands on explodes and
- * leaves the arena. The gunners never move from their spot -- they just
- * breathe, sway, punch the air and recoil. */
+/** Tank war: two bosses with a huge health pool versus the viewers' armies.
+ * Viewers enlist by typing a keyword in chat and every gift makes their own
+ * tank swivel and shell the ENEMY BOSS -- nobody ever shoots a fellow viewer.
+ * The bosses answer on their own schedule by lobbing a bomb at one active
+ * enemy viewer, which takes a full-health soldier out. The bosses never move
+ * from their spot: they breathe, sway, punch the air and recoil. */
 export default class TankWarScene extends Phaser.Scene {
   private sessionId!: string;
   private socket!: EventSocket;
@@ -49,6 +52,7 @@ export default class TankWarScene extends Phaser.Scene {
   private combos!: ComboManager;
   private feed!: FeedManager;
   private audio!: AudioManager;
+  private bossBars!: XPManager;
   private ranking: RankingManager | null = null;
 
   private gunners: Partial<Record<"A" | "B", Gunner>> = {};
@@ -86,39 +90,33 @@ export default class TankWarScene extends Phaser.Scene {
     this.feed = new FeedManager(this);
     this.audio = new AudioManager();
     this.audio.init();
+    this.bossBars = new XPManager(this);
 
     this.buildArmyLabels();
 
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.socket?.close());
+    const closeSocket = () => this.socket?.close();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, closeSocket);
+    // game.destroy() tears the scene down without a SHUTDOWN, so without this
+    // the socket would outlive the scene and crash on the next message.
+    this.events.once(Phaser.Scenes.Events.DESTROY, closeSocket);
   }
 
   update() {
     this.soldiers.syncOverlays();
   }
 
+  /** The boss health bars come from the shared XPManager; this is just the
+   * troop count line underneath each of them. */
   private buildArmyLabels() {
     (["A", "B"] as const).forEach((side) => {
       const x = side === "A" ? 20 + BAR_WIDTH / 2 : ARENA_WIDTH - 20 - BAR_WIDTH / 2;
-      this.add
-        .text(x, XP_BAR_Y - 26, "", {
-          fontFamily: "Segoe UI, sans-serif",
-          fontSize: "22px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          stroke: "#000",
-          strokeThickness: 5,
-        })
-        .setOrigin(0.5)
-        .setDepth(92)
-        .setName(`army_name_${side}`);
-
       this.armyLabels[side] = this.add
-        .text(x, XP_BAR_Y + 6, "", {
+        .text(x, XP_BAR_Y + 32, "", {
           fontFamily: "Segoe UI, sans-serif",
-          fontSize: "20px",
+          fontSize: "19px",
           fontStyle: "bold",
           color: "#ffffff",
           stroke: "#000",
@@ -140,6 +138,9 @@ export default class TankWarScene extends Phaser.Scene {
       case "tank_shot":
         this.handleTankShot(msg as TankShotMessage);
         break;
+      case "boss_bomb":
+        this.handleBossBomb(msg as BossBombMessage);
+        break;
       case "battle_restarted":
         this.victoryShown = false;
         break;
@@ -150,11 +151,15 @@ export default class TankWarScene extends Phaser.Scene {
     this.teamColors = { A: msg.side_a.team_color, B: msg.side_b.team_color };
     this.teamNames = { A: msg.side_a.name.toUpperCase(), B: msg.side_b.name.toUpperCase() };
 
-    (["A", "B"] as const).forEach((side) => {
-      const label = this.children.getByName(`army_name_${side}`) as Phaser.GameObjects.Text | null;
-      label?.setText(this.teamNames[side]);
-      label?.setColor(this.teamColors[side]);
-    });
+    this.bossBars.init(
+      msg.side_a.name,
+      msg.side_a.team_color,
+      msg.side_b.name,
+      msg.side_b.team_color,
+      msg.side_a.xp_max,
+      msg.side_b.xp_max
+    );
+    this.bossBars.update(msg.xp.a, msg.xp.b);
 
     const bgUrl = resolveAssetUrl(msg.battle.background_url);
     if (bgUrl && !this.textures.exists("tank_bg")) {
@@ -323,57 +328,30 @@ export default class TankWarScene extends Phaser.Scene {
 
   private async handleTankShot(msg: TankShotMessage) {
     const gunner = this.gunners[msg.shooter_side];
+    const targetBoss = this.gunners[msg.target_side];
     const shooterName = (msg.player.nickname || msg.player.username).toUpperCase();
 
     // The sender fights on the side they enlisted for, so make sure their own
     // soldier is on the field too.
     this.soldiers.spawnOrGet(msg.player, this.teamColors[msg.player.team], true);
 
-    const targets = msg.hits
-      .map((hit) => ({ hit, fighter: this.soldiers.get(hit.user_id) }))
-      .filter((t) => t.fighter);
-
-    const firstTarget = targets[0]?.fighter;
-    if (gunner) {
-      this.aimAndRecoil(gunner, firstTarget ? firstTarget.sprite.y : gunner.baseY);
-    }
-
-    const heavy = msg.gift.coins >= 100 || msg.kills > 1;
     const muzzle = gunner ? this.muzzleOf(gunner) : { x: CENTER_X, y: CEILING_Y };
+    const impact = targetBoss
+      ? { x: targetBoss.sprite.x, y: targetBoss.sprite.y }
+      : { x: msg.target_side === "A" ? ARENA_WIDTH * 0.26 : ARENA_WIDTH * 0.74, y: CEILING_Y + 200 };
 
-    targets.forEach(({ hit, fighter }, index) => {
-      this.time.delayedCall(index * 120, () => {
-        if (!fighter) return;
-        this.missiles.fireShell(muzzle.x, muzzle.y, fighter.sprite.x, fighter.sprite.y, heavy, () => {
-          this.soldiers.setPower(hit.user_id, hit.power);
-          if (hit.eliminated) {
-            this.effects.burst(fighter.sprite.x, fighter.sprite.y, 0xff5533, 24, 260);
-            this.soldiers.eliminate(hit.user_id);
-          } else {
-            this.effects.floatingNumber(
-              fighter.sprite.x,
-              fighter.sprite.y - 30,
-              `-${Math.round(hit.damage)}`,
-              "#ff5b5b"
-            );
-          }
-        });
-      });
+    if (gunner) this.aimAndRecoil(gunner, impact.y);
+
+    // Coin price decides how heavy the shell reads on screen.
+    const heavy = msg.gift.coins >= 100;
+    this.missiles.fireShell(muzzle.x, muzzle.y, impact.x, impact.y, heavy, () => {
+      this.bossBars.update(msg.xp.a, msg.xp.b);
+      this.effects.floatingNumber(impact.x, impact.y - 60, `-${Math.round(msg.damage)}`, "#ff5b5b");
+      if (targetBoss) this.flinch(targetBoss);
     });
 
     this.audio.missile();
-    // One shake for the whole volley -- shaking per shell stacks into a mess.
-    this.effects.shake(msg.kills > 1 ? 0.012 : 0.006, 180);
-
-    if (msg.kills > 0) {
-      this.effects.bannerText(
-        `${shooterName} ELIMINOU ${msg.kills}`,
-        msg.shooter_side === "A" ? ARENA_WIDTH * 0.3 : ARENA_WIDTH * 0.7,
-        520,
-        "#ffd700",
-        34
-      );
-    }
+    this.effects.shake(heavy ? 0.012 : 0.006, 180);
 
     if (msg.combo.count >= 10) {
       this.combos.announce(shooterName, msg.combo.count, msg.combo.tier_label);
@@ -381,16 +359,92 @@ export default class TankWarScene extends Phaser.Scene {
     }
 
     this.feed.push(
-      `${msg.gift.icon} ${shooterName} ${msg.gift.coins}💰 x${msg.quantity}` +
-        (msg.kills ? ` — ${msg.kills} 💀` : "")
+      `${msg.gift.icon} ${shooterName} ${msg.gift.coins}💰 x${msg.quantity} — ${Math.round(msg.damage).toLocaleString("pt-BR")}`
     );
 
     this.updateArmies(msg.armies);
     if (msg.winner_side) {
       // The server declares the winner the instant the shot resolves, but the
-      // shells are still in the air -- let them land before celebrating.
-      const flightMs = 500 + targets.length * 120;
-      this.time.delayedCall(flightMs, () => this.showVictory(msg.winner_side as string));
+      // shell is still in the air -- let it land before celebrating.
+      this.time.delayedCall(600, () => this.showVictory(msg.winner_side as string));
+    }
+  }
+
+  /** The boss retaliating: a bomb lobbed over the divider onto one active
+   * enemy viewer, who takes heavy damage and usually leaves the arena. */
+  private handleBossBomb(msg: BossBombMessage) {
+    const boss = this.gunners[msg.boss_side];
+    const victim = this.soldiers.get(msg.victim.user_id);
+    if (!victim) {
+      this.updateArmies(msg.armies);
+      return;
+    }
+
+    const from = boss ? this.muzzleOf(boss) : { x: CENTER_X, y: CEILING_Y };
+    const to = { x: victim.sprite.x, y: victim.sprite.y };
+    const victimName = msg.victim.username.toUpperCase();
+
+    if (boss) this.aimAndRecoil(boss, to.y);
+
+    const bomb = this.add
+      .text(from.x, from.y, "💣", { fontSize: "46px" })
+      .setOrigin(0.5)
+      .setDepth(58);
+
+    // Lobbed in an arc so it reads as a bomb dropping, not a flat shell.
+    const path = new Phaser.Curves.QuadraticBezier(
+      new Phaser.Math.Vector2(from.x, from.y),
+      new Phaser.Math.Vector2((from.x + to.x) / 2, Math.min(from.y, to.y) - 260),
+      new Phaser.Math.Vector2(to.x, to.y)
+    );
+    const travel = { t: 0 };
+    this.tweens.add({
+      targets: travel,
+      t: 1,
+      duration: 900,
+      ease: "Sine.easeIn",
+      onUpdate: () => {
+        const point = path.getPoint(travel.t);
+        bomb.setPosition(point.x, point.y);
+        bomb.rotation += 0.12;
+      },
+      onComplete: () => {
+        bomb.destroy();
+        this.effects.flash(to.x, to.y, 70, 0xff9933, 0.95);
+        this.effects.burst(to.x, to.y, 0xff6633, 30, 300);
+        this.effects.shake(0.02, 240);
+        this.audio.missile();
+
+        this.soldiers.setPower(msg.victim.user_id, msg.victim.power);
+        this.effects.floatingNumber(to.x, to.y - 34, `-${Math.round(msg.victim.damage)}`, "#ff3b3b");
+        if (msg.victim.eliminated) {
+          this.soldiers.eliminate(msg.victim.user_id);
+          // Both bosses can bomb on the same tick, so each banner goes over
+          // its own victim's half instead of stacking in the middle.
+          const victimHalfX = msg.boss_side === "A" ? ARENA_WIDTH * 0.75 : ARENA_WIDTH * 0.25;
+          this.effects.bannerText(`💣 ${victimName} FOI ATINGIDO!`, victimHalfX, 560, "#ff6b6b", 30);
+        }
+        this.updateArmies(msg.armies);
+      },
+    });
+
+    this.feed.push(`💣 ${this.teamNames[msg.boss_side]} BOMBARDEOU ${victimName}`);
+  }
+
+  /** Boss reacting to a hit: a quick recoil shudder and a red flash. */
+  private flinch(gunner: Gunner) {
+    const sprite = gunner.sprite as Phaser.GameObjects.Image;
+    this.tweens.add({
+      targets: sprite,
+      x: gunner.baseX + 10 * gunner.facing,
+      duration: 70,
+      yoyo: true,
+      repeat: 1,
+      onComplete: () => sprite.setPosition(gunner.baseX, gunner.baseY),
+    });
+    if ((sprite as any).setTint) {
+      (sprite as any).setTint(0xff8888);
+      this.time.delayedCall(140, () => (sprite as any).clearTint?.());
     }
   }
 

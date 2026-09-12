@@ -171,17 +171,26 @@ export interface TankShotMessage {
   shooter_side: "A" | "B";
   target_side: "A" | "B";
   damage: number;
-  kills: number;
-  hits: {
+  boss_hp: number;
+  xp: { a: number; b: number };
+  xp_max: { a: number; b: number };
+  armies: ArmyTotals;
+  winner_side: string | null;
+  status: string;
+}
+
+export interface BossBombMessage {
+  type: "boss_bomb";
+  session_id: string;
+  boss_side: "A" | "B";
+  victim: {
     user_id: string;
     username: string;
     damage: number;
     power: number;
     eliminated: boolean;
-  }[];
+  };
   armies: ArmyTotals;
-  winner_side: string | null;
-  status: string;
 }
 
 export type ArenaMessage =
@@ -194,4 +203,5 @@ export type ArenaMessage =
   | PvpGiftMessage
   | PvpCombatMessage
   | PlayerEnlistedMessage
-  | TankShotMessage;
+  | TankShotMessage
+  | BossBombMessage;

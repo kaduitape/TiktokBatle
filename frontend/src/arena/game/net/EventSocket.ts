@@ -41,6 +41,14 @@ export class EventSocket {
   close(): void {
     this.closedByUser = true;
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
-    this.ws?.close();
+    if (this.ws) {
+      // Detach first: the closing handshake can still deliver a buffered
+      // message, and by then the scene that owns this socket is gone.
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.close();
+      this.ws = null;
+    }
   }
 }

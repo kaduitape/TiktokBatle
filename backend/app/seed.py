@@ -54,11 +54,12 @@ DEFAULT_CHARACTERS = [
     dict(name="Lado B", team_color="#3498db", pos_x=0.75, pos_y=0.5, flip_h=True, xp_max=100_000),
 ]
 
-# Tank war ships with its own pair of gunners, placed high on the arena so the
-# troops pile up beneath them. The art itself is uploaded by the admin in
-# Admin -> Personagens; until then they render as placeholders.
+# Tank war ships with its own pair of bosses, placed high on the arena so the
+# troops pile up beneath them. They hold a huge health pool because the whole
+# viewer base chips at it all stream long. The art itself is uploaded by the
+# admin in Admin -> Personagens; until then they render as placeholders.
 TANK_WAR_CHARACTERS = [
-    dict(name="Lula", team_color="#e01b24", pos_x=0.26, pos_y=0.30, scale=1.0, xp_max=100_000),
+    dict(name="Lula", team_color="#e01b24", pos_x=0.26, pos_y=0.30, scale=1.0, xp_max=1_500_000),
     dict(
         name="Bolsonaro",
         team_color="#2a7d2e",
@@ -66,7 +67,7 @@ TANK_WAR_CHARACTERS = [
         pos_y=0.30,
         scale=1.0,
         flip_h=True,
-        xp_max=100_000,
+        xp_max=1_500_000,
     ),
 ]
 

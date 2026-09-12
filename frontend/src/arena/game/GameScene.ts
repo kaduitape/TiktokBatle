@@ -87,7 +87,11 @@ export default class GameScene extends Phaser.Scene {
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.socket?.close());
+    const closeSocket = () => this.socket?.close();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, closeSocket);
+    // game.destroy() tears the scene down without a SHUTDOWN, so without this
+    // the socket would outlive the scene and crash on the next message.
+    this.events.once(Phaser.Scenes.Events.DESTROY, closeSocket);
   }
 
   private handleMessage(msg: ArenaMessage) {

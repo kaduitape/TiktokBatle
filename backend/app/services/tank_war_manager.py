@@ -1,5 +1,5 @@
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -9,33 +9,29 @@ from app.models.models import Gift, Player
 
 
 @dataclass
-class TankShot:
-    """One cannon shot: the firing side, and every enemy soldier it took out
-    or wounded on the way."""
+class BombHit:
+    """One boss bomb landing on a single enemy viewer."""
 
-    team: str
-    target_side: str
-    total_damage: float
-    hits: list[dict[str, Any]] = field(default_factory=list)
-
-    @property
-    def kills(self) -> int:
-        return sum(1 for h in self.hits if h["eliminated"])
+    user_id: str
+    username: str
+    damage: float
+    power: float
+    eliminated: bool
 
 
 class TankWarManager:
-    """Rules for tank war mode: the two characters are the gunners and the
-    viewers are the troops.
+    """Rules for tank war mode: the two characters are bosses with a huge
+    health pool, and the viewers are the armies chipping at them.
 
-    A gift makes the sender's tank fire, and the gift's coin price is the
-    shot's power -- a 1-coin rose chips a single soldier, an expensive gift
-    wipes out a whole squad. Enemies are picked at random, explode, and leave
-    the arena.
+    Both sides only ever attack the *enemy boss* -- viewers never shoot each
+    other. The bosses answer back on their own schedule by lobbing a bomb at
+    one active enemy viewer, which hurts enough to take a full-health soldier
+    out. Every number comes from the `tank_war` settings key.
     """
 
     @staticmethod
     def soldier_hp(config: dict[str, Any]) -> float:
-        return float(config.get("soldier_hp", 100))
+        return float(config.get("soldier_hp", 150))
 
     @staticmethod
     def team_for_comment(text: str, config: dict[str, Any]) -> str | None:
@@ -53,70 +49,61 @@ class TankWarManager:
         return None
 
     @staticmethod
-    def shot_damage(gift: Gift, quantity: int, config: dict[str, Any]) -> float:
-        per_coin = float(config.get("damage_per_coin", 20))
+    def enemy_side(team: str) -> str:
+        return "B" if team == "A" else "A"
+
+    @staticmethod
+    def boss_damage(gift: Gift, quantity: int, config: dict[str, Any]) -> float:
+        """The gift's coin price is the shot's power, so an expensive gift
+        moves the boss's bar far more than a cheap one."""
+        per_coin = float(config.get("boss_damage_per_coin", 500))
         coins = max(1, gift.coins or 1)
         return coins * quantity * per_coin * (gift.multiplier or 1.0)
 
-    @classmethod
-    async def enemy_soldiers(cls, db: AsyncSession, session_id: str, team: str) -> list[Player]:
-        enemy_team = "B" if team == "A" else "A"
-        return (
+    @staticmethod
+    async def pick_bomb_target(
+        db: AsyncSession, session_id: str, team: str, config: dict[str, Any]
+    ) -> Player | None:
+        """Picks who eats the next bomb: a living soldier of `team`, drawn from
+        the most recently active ones so the bomb lands on somebody who is
+        actually playing rather than a viewer who enlisted and left."""
+        pool_size = max(1, int(config.get("bomb_active_pool", 10)))
+        candidates = (
             (
                 await db.execute(
-                    select(Player).where(
+                    select(Player)
+                    .where(
                         Player.session_id == session_id,
-                        Player.team == enemy_team,
+                        Player.team == team,
                         Player.eliminated.is_(False),
                         Player.power > 0,
                     )
+                    .order_by(Player.last_interaction.desc())
+                    .limit(pool_size)
                 )
             )
             .scalars()
             .all()
         )
+        return random.choice(candidates) if candidates else None
 
-    @classmethod
-    def resolve_shot(
-        cls,
-        team: str,
-        enemies: list[Player],
-        damage: float,
-        config: dict[str, Any],
-    ) -> TankShot:
-        """Spends the shot's damage across randomly chosen enemies: it rolls
-        onto the next soldier once the current one is destroyed, so power
-        translates directly into body count."""
-        shot = TankShot(team=team, target_side="B" if team == "A" else "A", total_damage=damage)
-        if not enemies or damage <= 0:
-            return shot
+    @staticmethod
+    def resolve_bomb(target: Player, config: dict[str, Any]) -> BombHit:
+        damage = float(config.get("bomb_damage", 150))
+        dealt = min(damage, target.power)
+        target.power = max(0.0, target.power - dealt)
 
-        max_targets = int(config.get("max_targets_per_shot", 10))
-        pool = random.sample(enemies, min(len(enemies), max_targets))
+        eliminated = target.power <= 0
+        if eliminated:
+            target.eliminated = True
 
-        remaining = damage
-        for target in pool:
-            if remaining <= 0:
-                break
-            dealt = min(remaining, target.power)
-            target.power = max(0.0, target.power - dealt)
-            remaining -= dealt
-
-            eliminated = target.power <= 0
-            if eliminated:
-                target.eliminated = True
-
-            shot.hits.append(
-                {
-                    "user_id": target.user_id,
-                    "username": target.username,
-                    "damage": round(dealt, 1),
-                    "power": round(target.power, 1),
-                    "eliminated": eliminated,
-                }
-            )
-
-        return shot
+        return BombHit(
+            user_id=target.user_id,
+            username=target.username,
+            damage=round(dealt, 1),
+            power=round(target.power, 1),
+            eliminated=eliminated,
+        )
 
     @staticmethod
     def army_totals(players: list[Player]) -> dict[str, dict[str, float]]:
@@ -129,16 +116,6 @@ class TankWarManager:
             if not p.eliminated and p.power > 0:
                 side["alive"] += 1
         return totals
-
-    @staticmethod
-    def winner_from(totals: dict[str, dict[str, float]]) -> str | None:
-        a, b = totals["A"], totals["B"]
-        if a["recruited"] and b["recruited"]:
-            if a["alive"] == 0 and b["alive"] > 0:
-                return "B"
-            if b["alive"] == 0 and a["alive"] > 0:
-                return "A"
-        return None
 
 
 tank_war_manager = TankWarManager()

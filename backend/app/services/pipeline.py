@@ -439,14 +439,19 @@ class GamePipeline:
             player.peak_power = starting
             player.eliminated = False
 
-        damage = tank_war_manager.shot_damage(gift, quantity, config)
-        enemies = await tank_war_manager.enemy_soldiers(db, session.id, team)
-        shot = tank_war_manager.resolve_shot(team, enemies, damage, config)
+        # Everybody fires at the enemy boss -- never at each other. The boss's
+        # health pool is the same side_a_xp/side_b_xp the classic mode uses, so
+        # the clamping and victory checks are shared.
+        target_side = tank_war_manager.enemy_side(team)
+        damage = tank_war_manager.boss_damage(gift, quantity, config)
+
+        side_a_char = await db.get(Character, battle.side_a_character_id)
+        side_b_char = await db.get(Character, battle.side_b_character_id)
+        boss_hp = xp_manager.apply(session, target_side, -damage, side_a_char, side_b_char)
 
         player.gifts_total += quantity
         player.combo_count = combo_count
         player.damage_total += damage
-        player.kills += shot.kills
         player.last_interaction = datetime.now(timezone.utc)
 
         db.add(
@@ -458,8 +463,8 @@ class GamePipeline:
                 quantity=quantity,
                 combo_count=combo_count,
                 xp_delta=-damage,
-                target_side=shot.target_side,
-                payload={"gift_key": gift.gift_key, "mode": "tank_war", "kills": shot.kills},
+                target_side=target_side,
+                payload={"gift_key": gift.gift_key, "mode": "tank_war"},
             )
         )
 
@@ -469,11 +474,7 @@ class GamePipeline:
             (await db.execute(select(Player).where(Player.session_id == session.id))).scalars().all()
         )
         armies = tank_war_manager.army_totals(players)
-        winner = tank_war_manager.winner_from(armies)
-        if winner:
-            session.status = "finished"
-            session.winner_side = winner
-            session.finished_at = datetime.now(timezone.utc)
+        winner = battle_manager.check_victory(session)
 
         return {
             "type": "tank_shot",
@@ -494,14 +495,71 @@ class GamePipeline:
                 "tier_animation": combo_tier.animation_key if combo_tier else None,
             },
             "shooter_side": team,
-            "target_side": shot.target_side,
+            "target_side": target_side,
             "damage": round(damage, 1),
-            "kills": shot.kills,
-            "hits": shot.hits,
+            "boss_hp": round(boss_hp, 1),
+            "xp": {"a": session.side_a_xp, "b": session.side_b_xp},
+            "xp_max": {"a": side_a_char.xp_max, "b": side_b_char.xp_max},
             "armies": armies,
             "winner_side": winner,
             "status": session.status,
         }
+
+    async def boss_bomb(self, session_id: str, boss_side: str) -> dict:
+        """The boss answers the barrage on its own schedule: a bomb lobbed at
+        one active enemy viewer, hard enough to take a full-health soldier out
+        (spec of mode 3). Driven by the per-session battle loop."""
+        async with AsyncSessionLocal() as db:
+            session = await db.get(BattleSession, session_id)
+            if session is None or session.status == "finished":
+                return {}
+
+            battle = await db.get(Battle, session.battle_id)
+            if battle is None or battle.mode != "tank_war":
+                return {}
+
+            config = await settings_service.get(db, "tank_war")
+            victim_team = tank_war_manager.enemy_side(boss_side)
+            target = await tank_war_manager.pick_bomb_target(db, session_id, victim_team, config)
+            if target is None:
+                return {}
+
+            hit = tank_war_manager.resolve_bomb(target, config)
+
+            db.add(
+                BattleEvent(
+                    session_id=session_id,
+                    player_id=target.id,
+                    event_type="boss_bomb",
+                    quantity=1,
+                    xp_delta=-hit.damage,
+                    target_side=victim_team,
+                    payload={"mode": "tank_war", "boss_side": boss_side, "eliminated": hit.eliminated},
+                )
+            )
+            await db.commit()
+
+            players = (
+                (await db.execute(select(Player).where(Player.session_id == session_id)))
+                .scalars()
+                .all()
+            )
+            message = {
+                "type": "boss_bomb",
+                "session_id": session_id,
+                "boss_side": boss_side,
+                "victim": {
+                    "user_id": hit.user_id,
+                    "username": hit.username,
+                    "damage": hit.damage,
+                    "power": hit.power,
+                    "eliminated": hit.eliminated,
+                },
+                "armies": tank_war_manager.army_totals(players),
+            }
+
+        await connection_manager.broadcast(session_id, message)
+        return message
 
     @staticmethod
     def _player_payload(player: Player, created: bool) -> dict:
