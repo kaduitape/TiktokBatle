@@ -144,6 +144,13 @@ class SessionOut(BaseModel):
         from_attributes = True
 
 
+class ActiveBattleOut(BaseModel):
+    """The battle session currently receiving live/simulated events."""
+
+    battle: BattleOut
+    session: SessionOut
+
+
 class MusicTrackIn(BaseModel):
     name: str
     file_url: str

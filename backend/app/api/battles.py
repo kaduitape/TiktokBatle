@@ -4,12 +4,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
 from app.core.database import get_db
-from app.models.models import Battle, Character
-from app.schemas.schemas import BattleIn, BattleOut, SessionOut
+from app.models.models import Battle, BattleSession, Character
+from app.schemas.schemas import ActiveBattleOut, BattleIn, BattleOut, SessionOut
 from app.services.battle_manager import battle_manager
 from app.ws.connection_manager import connection_manager
 
 router = APIRouter(prefix="/api/battles", tags=["battles"])
+ACTIVE_SESSION_STATUSES = ("active", "sudden_death")
+
+
+def _ensure_distinct_sides(body: BattleIn) -> None:
+    """Reject a configuration that would use one character on both sides."""
+    if body.side_a_character_id == body.side_b_character_id:
+        raise HTTPException(422, "side_a_character_id and side_b_character_id must be different")
 
 
 @router.get("", response_model=list[BattleOut])
@@ -38,6 +45,7 @@ async def list_templates(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=BattleOut)
 async def create_battle(body: BattleIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    _ensure_distinct_sides(body)
     for cid in (body.side_a_character_id, body.side_b_character_id):
         if not await db.get(Character, cid):
             raise HTTPException(400, f"character {cid} not found")
@@ -46,6 +54,31 @@ async def create_battle(body: BattleIn, db: AsyncSession = Depends(get_db), _: s
     await db.commit()
     await db.refresh(battle)
     return battle
+
+
+@router.get("/active", response_model=ActiveBattleOut)
+async def get_current_active_battle(db: AsyncSession = Depends(get_db)):
+    """Resolve simulation to the most recently started live battle.
+
+    The simulator used to start the first battle in the list, even when OBS
+    was showing another one. Resolving the live session here keeps all events
+    on the battle currently in progress.
+    """
+    session = (
+        await db.execute(
+            select(BattleSession)
+            .where(BattleSession.status.in_(ACTIVE_SESSION_STATUSES))
+            .order_by(BattleSession.started_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    if not session:
+        raise HTTPException(404, "no active battle session")
+
+    battle = await db.get(Battle, session.battle_id)
+    if not battle:
+        raise HTTPException(404, "active battle not found")
+    return {"battle": battle, "session": session}
 
 
 @router.get("/{battle_id}", response_model=BattleOut)
@@ -60,6 +93,7 @@ async def get_battle(battle_id: str, db: AsyncSession = Depends(get_db)):
 async def update_battle(
     battle_id: str, body: BattleIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
 ):
+    _ensure_distinct_sides(body)
     battle = await db.get(Battle, battle_id)
     if not battle:
         raise HTTPException(404, "battle not found")

@@ -23,7 +23,9 @@ const empty: Omit<Character, "id"> = {
   background_url: null,
   team_color: "#3498db",
   scale: 1,
-  pos_x: 0.5,
+  // Keep a new character visible by default. The quick position buttons in
+  // the form make it explicit which half of the arena it belongs to.
+  pos_x: 0.25,
   pos_y: 0.5,
   flip_h: false,
   shadow: true,
@@ -67,6 +69,15 @@ export default function Characters() {
     setForm((f) => ({ ...f, [field]: url }));
   };
 
+  const placeOnSide = (side: "A" | "B") => {
+    setForm((current) => ({
+      ...current,
+      pos_x: side === "A" ? 0.25 : 0.75,
+      pos_y: 0.5,
+      flip_h: side === "B",
+    }));
+  };
+
   return (
     <div>
       <h1>Personagens</h1>
@@ -83,7 +94,12 @@ export default function Characters() {
 
             <label>Imagem (PNG transparente)</label>
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "image_url")} />
-            {form.image_url && <div className="pill">{form.image_url}</div>}
+            {form.image_url && (
+              <div className="row" style={{ marginTop: 6 }}>
+                <img src={form.image_url} alt="Prévia do personagem" style={{ width: 54, height: 54, objectFit: "contain" }} />
+                <span className="pill">Imagem selecionada</span>
+              </div>
+            )}
 
             <label>Fundo</label>
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "background_url")} />
@@ -128,6 +144,12 @@ export default function Characters() {
               onChange={(e) => setForm({ ...form, pos_y: Number(e.target.value) })}
             />
 
+            <label>Posição inicial na arena</label>
+            <div className="row">
+              <button type="button" className="secondary" onClick={() => placeOnSide("A")}>Lado A</button>
+              <button type="button" className="secondary" onClick={() => placeOnSide("B")}>Lado B</button>
+            </div>
+
             <label>
               <input type="checkbox" checked={form.flip_h} onChange={(e) => setForm({ ...form, flip_h: e.target.checked })} /> Inverter horizontalmente
             </label>
@@ -158,6 +180,7 @@ export default function Characters() {
         <table>
           <thead>
             <tr>
+              <th>Imagem</th>
               <th>Nome</th>
               <th>Cor</th>
               <th>XP máx</th>
@@ -167,6 +190,7 @@ export default function Characters() {
           <tbody>
             {list.map((c) => (
               <tr key={c.id}>
+                <td>{c.image_url ? <img src={c.image_url} alt="" style={{ width: 42, height: 42, objectFit: "contain" }} /> : "—"}</td>
                 <td>{c.name}</td>
                 <td>
                   <span className="pill" style={{ background: c.team_color }}>&nbsp;&nbsp;&nbsp;</span>

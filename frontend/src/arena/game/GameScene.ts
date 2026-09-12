@@ -144,9 +144,20 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  private renderCharacter(meta: CharacterPayload): Phaser.GameObjects.Image | Phaser.GameObjects.Text {
-    const x = meta.pos_x * ARENA_WIDTH;
-    const y = meta.pos_y * ARENA_HEIGHT;
+  private characterPosition(meta: CharacterPayload, side: "A" | "B"): { x: number; y: number } {
+    // A newly registered character used to default to the exact centre of the
+    // arena. When both sides had that untouched value, the final sprite drawn
+    // covered the first one and made it look as if both sides had one image.
+    // Preserve positions chosen in the editor, but split untouched defaults.
+    const usesUntouchedDefault = meta.pos_x === 0.5 && meta.pos_y === 0.5;
+    return {
+      x: (usesUntouchedDefault ? (side === "A" ? 0.25 : 0.75) : meta.pos_x) * ARENA_WIDTH,
+      y: meta.pos_y * ARENA_HEIGHT,
+    };
+  }
+
+  private renderCharacter(meta: CharacterPayload, side: "A" | "B"): Phaser.GameObjects.Image | Phaser.GameObjects.Text {
+    const { x, y } = this.characterPosition(meta, side);
     const url = resolveUrl(meta.image_url);
 
     if (meta.shadow) {
@@ -215,8 +226,8 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    this.charSpriteA = this.renderCharacter(msg.side_a);
-    this.charSpriteB = this.renderCharacter(msg.side_b);
+    this.charSpriteA = this.renderCharacter(msg.side_a, "A");
+    this.charSpriteB = this.renderCharacter(msg.side_b, "B");
 
     this.xp.init(msg.side_a.name, msg.side_a.team_color, msg.side_b.name, msg.side_b.team_color, msg.side_a.xp_max, msg.side_b.xp_max);
     this.xp.update(msg.xp.a, msg.xp.b);
@@ -243,7 +254,7 @@ export default class GameScene extends Phaser.Scene {
     const sprite = side === "A" ? this.charSpriteA : this.charSpriteB;
     if (sprite) return { x: sprite.x, y: sprite.y };
     const meta = side === "A" ? this.sideAMeta : this.sideBMeta;
-    return { x: meta.pos_x * ARENA_WIDTH, y: meta.pos_y * ARENA_HEIGHT };
+    return this.characterPosition(meta, side);
   }
 
   private async handleAttack(msg: AttackMessage) {

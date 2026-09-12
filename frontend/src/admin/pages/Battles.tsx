@@ -49,6 +49,7 @@ export default function Battles() {
   useEffect(load, []);
 
   const save = async () => {
+    if (form.side_a_character_id === form.side_b_character_id) return;
     if (form.id) await api.put(`/api/battles/${form.id}`, form);
     else await api.post("/api/battles", form);
     setForm(empty);
@@ -117,7 +118,7 @@ export default function Battles() {
             <select value={form.side_a_character_id} onChange={(e) => setForm({ ...form, side_a_character_id: e.target.value })}>
               <option value="">selecione…</option>
               {characters.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+                <option key={c.id} value={c.id} disabled={c.id === form.side_b_character_id}>{c.name}</option>
               ))}
             </select>
 
@@ -140,7 +141,7 @@ export default function Battles() {
             <select value={form.side_b_character_id} onChange={(e) => setForm({ ...form, side_b_character_id: e.target.value })}>
               <option value="">selecione…</option>
               {characters.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+                <option key={c.id} value={c.id} disabled={c.id === form.side_a_character_id}>{c.name}</option>
               ))}
             </select>
 
@@ -169,7 +170,7 @@ export default function Battles() {
         </div>
 
         <div className="row" style={{ marginTop: 14 }}>
-          <button onClick={save} disabled={!form.name || !form.side_a_character_id || !form.side_b_character_id}>
+          <button onClick={save} disabled={!form.name || !form.side_a_character_id || !form.side_b_character_id || form.side_a_character_id === form.side_b_character_id}>
             {form.id ? "Salvar" : "Criar batalha"}
           </button>
           {form.id && <button className="secondary" onClick={() => setForm(empty)}>Cancelar</button>}
