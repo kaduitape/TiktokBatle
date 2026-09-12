@@ -128,13 +128,13 @@ moedas de cada presente em **Admin → Presentes**.
 docker compose up --build -d
 ```
 
-O frontend é o único serviço exposto: http://localhost (ou a porta definida
+O frontend é o único serviço exposto: http://localhost:8080 (ou a porta definida
 em `HTTP_PORT`). Ele encaminha `/api`, `/uploads` e `/ws` internamente para o
 backend — banco, Redis e API não ficam públicos.
 
-- Documentação da API: http://localhost/docs
-- Painel admin: http://localhost/#/admin
-- Arena (fonte de vídeo para OBS): http://localhost/#/arena?battle=<id>
+- Documentação da API: http://localhost:8080/docs
+- Painel admin: http://localhost:8080/#/admin
+- Arena (fonte de vídeo para OBS): http://localhost:8080/#/arena?battle=<id>
 
 Na primeira subida o backend semeia automaticamente: 14 presentes padrão
 (8 da seção 12 + 6 ataques especiais das seções 20-25, cada um com seu preço

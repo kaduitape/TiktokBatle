@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 interface Character {
   id: string;
   name: string;
+  image_url: string | null;
 }
 
 interface Battle {
@@ -80,7 +81,13 @@ export default function Battles() {
     load();
   };
 
-  const charName = (id: string) => characters.find((c) => c.id === id)?.name || id;
+  const charFor = (id: string) => characters.find((c) => c.id === id);
+  const charName = (id: string) => charFor(id)?.name || id;
+  const selectedA = charFor(form.side_a_character_id);
+  const selectedB = charFor(form.side_b_character_id);
+  const selectedSidesReuseImage = Boolean(
+    selectedA?.image_url && selectedA.image_url === selectedB?.image_url,
+  );
 
   return (
     <div>
@@ -121,6 +128,7 @@ export default function Battles() {
                 <option key={c.id} value={c.id} disabled={c.id === form.side_b_character_id}>{c.name}</option>
               ))}
             </select>
+            {selectedA?.image_url && <img src={selectedA.image_url} alt={`Imagem de ${selectedA.name}`} style={{ width: 72, height: 72, objectFit: "contain", marginTop: 8 }} />}
 
             <label>Máximo de bolinhas</label>
             <select value={form.max_players} onChange={(e) => setForm({ ...form, max_players: Number(e.target.value) })}>
@@ -144,6 +152,7 @@ export default function Battles() {
                 <option key={c.id} value={c.id} disabled={c.id === form.side_a_character_id}>{c.name}</option>
               ))}
             </select>
+            {selectedB?.image_url && <img src={selectedB.image_url} alt={`Imagem de ${selectedB.name}`} style={{ width: 72, height: 72, objectFit: "contain", marginTop: 8 }} />}
 
             <label>
               <input type="checkbox" checked={form.one_ball_per_user} onChange={(e) => setForm({ ...form, one_ball_per_user: e.target.checked })} /> Uma bolinha por usuário
@@ -169,8 +178,14 @@ export default function Battles() {
           </div>
         </div>
 
+        {selectedSidesReuseImage && (
+          <p style={{ color: "#ff8080", fontSize: 13 }}>
+            Os dois lados estão usando a mesma imagem. Escolha ou cadastre uma figura diferente para o Lado B.
+          </p>
+        )}
+
         <div className="row" style={{ marginTop: 14 }}>
-          <button onClick={save} disabled={!form.name || !form.side_a_character_id || !form.side_b_character_id || form.side_a_character_id === form.side_b_character_id}>
+          <button onClick={save} disabled={!form.name || !form.side_a_character_id || !form.side_b_character_id || form.side_a_character_id === form.side_b_character_id || selectedSidesReuseImage}>
             {form.id ? "Salvar" : "Criar batalha"}
           </button>
           {form.id && <button className="secondary" onClick={() => setForm(empty)}>Cancelar</button>}

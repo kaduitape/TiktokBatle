@@ -13,10 +13,18 @@ router = APIRouter(prefix="/api/battles", tags=["battles"])
 ACTIVE_SESSION_STATUSES = ("active", "sudden_death")
 
 
-def _ensure_distinct_sides(body: BattleIn) -> None:
-    """Reject a configuration that would use one character on both sides."""
+async def _validate_sides(db: AsyncSession, body: BattleIn) -> None:
+    """Ensure a battle has two characters with distinct artwork."""
     if body.side_a_character_id == body.side_b_character_id:
         raise HTTPException(422, "side_a_character_id and side_b_character_id must be different")
+
+    side_a = await db.get(Character, body.side_a_character_id)
+    side_b = await db.get(Character, body.side_b_character_id)
+    if not side_a or not side_b:
+        missing_id = body.side_a_character_id if not side_a else body.side_b_character_id
+        raise HTTPException(400, f"character {missing_id} not found")
+    if side_a.image_url and side_a.image_url == side_b.image_url:
+        raise HTTPException(422, "side_a and side_b must use different character images")
 
 
 @router.get("", response_model=list[BattleOut])
@@ -45,10 +53,7 @@ async def list_templates(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=BattleOut)
 async def create_battle(body: BattleIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
-    _ensure_distinct_sides(body)
-    for cid in (body.side_a_character_id, body.side_b_character_id):
-        if not await db.get(Character, cid):
-            raise HTTPException(400, f"character {cid} not found")
+    await _validate_sides(db, body)
     battle = Battle(**body.model_dump())
     db.add(battle)
     await db.commit()
@@ -93,7 +98,7 @@ async def get_battle(battle_id: str, db: AsyncSession = Depends(get_db)):
 async def update_battle(
     battle_id: str, body: BattleIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
 ):
-    _ensure_distinct_sides(body)
+    await _validate_sides(db, body)
     battle = await db.get(Battle, battle_id)
     if not battle:
         raise HTTPException(404, "battle not found")
