@@ -9,7 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api import auth as auth_routes
 from app.api import battles, characters, gifts, live, music, players, settings_routes, simulator, ws_routes
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, init_db
+from app.core.database import AsyncSessionLocal
+from app.core.migrations import run_migrations
 from app.providers.simulation_provider import simulation_provider
 from app.providers.tiktok_provider import tiktok_provider
 from app.seed import run_seed
@@ -24,7 +25,9 @@ logger = logging.getLogger("startup")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    # Schema is owned by Alembic: a fresh database gets built, an existing one
+    # gets only the migrations it's missing.
+    run_migrations()
 
     if settings.admin_password == "changeme":
         logger.warning(

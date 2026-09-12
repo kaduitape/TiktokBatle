@@ -10,7 +10,6 @@ class Settings(BaseSettings):
 
     app_name: str = "TikTok Battle Arena"
     database_url: str = "postgresql+asyncpg://battle:battle@postgres:5432/battle"
-    sync_database_url: str = "postgresql+psycopg2://battle:battle@postgres:5432/battle"
     redis_url: str = "redis://redis:6379/0"
 
     max_players_default: int = 500
@@ -30,6 +29,13 @@ class Settings(BaseSettings):
     # restart -- fine for a single container, but set BATTLE_SECRET_KEY
     # explicitly for multi-instance or persistent-session deployments.
     secret_key: str = secrets.token_hex(32)
+
+    @property
+    def migration_database_url(self) -> str:
+        """Alembic runs synchronously, so the async driver is stripped off
+        whatever the app itself connects with -- BATTLE_DATABASE_URL stays
+        the single source of truth for where the data lives."""
+        return self.database_url.replace("+asyncpg", "+psycopg2").replace("+aiosqlite", "")
 
     class Config:
         env_prefix = "BATTLE_"

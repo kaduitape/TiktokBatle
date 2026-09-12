@@ -23,7 +23,6 @@ services:
     restart: unless-stopped
     environment:
       BATTLE_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-battle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-battle}
-      BATTLE_SYNC_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-battle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-battle}
       BATTLE_REDIS_URL: redis://redis:6379/0
       BATTLE_CORS_ORIGINS: ${BATTLE_CORS_ORIGINS:-["http://localhost","http://127.0.0.1"]}
       BATTLE_ADMIN_USERNAME: ${BATTLE_ADMIN_USERNAME:?Defina BATTLE_ADMIN_USERNAME no arquivo .env}

@@ -63,10 +63,8 @@ curl -X PUT localhost:8000/api/settings/team_battle \
        "elimination_enabled":true,"respawn_power":0}'
 ```
 
-> **Atualizando um banco que já existia**: o modo PvP acrescentou colunas
-> (`battles.mode` e `players.power/peak_power/level/kills/eliminated`). Como o
-> projeto usa `create_all` e não tem migrations, um banco criado antes dessa
-> versão precisa de um `ALTER TABLE` manual ou de ser recriado do zero.
+> **Atualizando um banco que já existia**: nada a fazer — as migrations
+> cuidam disso automaticamente no startup (ver "Migrations" abaixo).
 
 ## Stack
 
@@ -174,6 +172,37 @@ Frontend: `frontend/src/{arena/game/managers,admin/pages}`
 presente, batalha ou música é hardcoded; tudo é CRUD via `/api/*` e o
 painel admin. `settings` é um KV genérico (hoje usado para o mixer de
 áudio, chave `audio_mixer`).
+
+### Migrations
+
+O schema é do Alembic (`backend/alembic/`), e o backend roda
+`alembic upgrade head` sozinho no startup — não existe mais `create_all`.
+Três situações, todas sem SQL manual:
+
+| Situação | O que acontece |
+|---|---|
+| Banco novo | Roda todas as migrations em ordem e cria tudo |
+| Banco já no Alembic | Roda só as que faltam |
+| Banco criado pelo `create_all` antigo (tabelas existem, sem `alembic_version`) | É **adotado**: recebe um `stamp` na revisão base e depois só o delta é aplicado — os dados são preservados |
+
+Esse terceiro caso é o que permite atualizar uma instância que já estava
+rodando antes do modo PvP sem perder nada. A revisão `0001` descreve de
+propósito o schema **anterior** ao PvP, e a `0002` acrescenta as colunas
+novas com `server_default` (sem isso não é possível adicionar coluna
+`NOT NULL` em tabela com registros).
+
+Para rodar à mão (ex: aplicar antes de subir a app, ou inspecionar):
+
+```bash
+cd backend
+alembic current            # em que revisão o banco está
+alembic upgrade head       # aplica o que falta
+alembic downgrade -1       # volta uma revisão
+```
+
+O Alembic usa a mesma `BATTLE_DATABASE_URL` da aplicação, só trocando o
+driver async pelo sync — não há uma segunda variável de banco para manter
+em sincronia.
 
 ### Fronteira de autenticação
 
