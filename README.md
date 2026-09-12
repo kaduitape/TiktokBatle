@@ -17,6 +17,57 @@ contra uma TikTok LIVE de verdade (o conector existe e usa o mesmo pipeline,
 mas não há credenciais/rede para validar isso nesta sessão) — ver "Status por
 fase" abaixo para o detalhe completo do que está e não está pronto.
 
+## Dois modos de batalha
+
+O mesmo pipeline, personagens, presentes, combos, efeitos e áudio servem aos
+dois modos — o admin escolhe por batalha, em **Admin → Batalhas → Modo**.
+
+### 🎯 Personagens (modo clássico)
+
+Os espectadores atacam os dois personagens configurados. Presentes tiram ou
+dão XP do Lado A / Lado B, e vence quem sobrar com XP.
+
+### ⚔️ Guerra de Times (PvP)
+
+Os **espectadores são os lutadores**. Cada um vira uma bolinha com poder
+próprio:
+
+- **Crescimento**: cada presente enviado aumenta o poder do próprio lutador, e
+  o tamanho da bolinha escala com esse poder (logaritmicamente, para um
+  "baleia" não cobrir a arena inteira). Sobe de nível a cada faixa de poder.
+- **Usuário contra usuário**: o mesmo presente que faz você crescer também cai
+  como um golpe em um inimigo aleatório do time oposto — presentes de cura só
+  fazem crescer, não batem.
+- **Combate contínuo**: um tick no servidor faz os lutadores vivos trocarem
+  tiros automaticamente, mesmo sem ninguém enviando presente.
+- **Barra de vida individual** e número de poder acima de cada bolinha; quem
+  zera o poder é **eliminado** e some da arena.
+- **Poderes especiais**: meteoro, raio, ataque aéreo etc. funcionam igual, só
+  que mirando lutadores do time inimigo em vez do personagem.
+- **Times balanceados**: quem entra sem escolher lado cai no time com menos
+  lutadores; quem manda presente entra no time que aquele presente ataca.
+- Vitória quando um time perde todos os lutadores. O reinício de rodada revive
+  todo mundo no poder inicial, sem precisar reentrar.
+
+Todos os números do modo (poder inicial, poder por presente, intervalo do tick,
+atacantes por tick, dano base, nível a cada X, eliminação ligada/desligada,
+poder de respawn) ficam na chave `team_battle` de **Settings** — dá para
+rebalancear uma live em andamento sem deploy:
+
+```bash
+curl -X PUT localhost:8000/api/settings/team_battle \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"starting_power":100,"power_per_gift_value":10,"tick_seconds":2,
+       "attackers_per_tick":40,"attack_base_damage":4,
+       "attack_power_scaling":0.004,"level_up_every":500,
+       "elimination_enabled":true,"respawn_power":0}'
+```
+
+> **Atualizando um banco que já existia**: o modo PvP acrescentou colunas
+> (`battles.mode` e `players.power/peak_power/level/kills/eliminated`). Como o
+> projeto usa `create_all` e não tem migrations, um banco criado antes dessa
+> versão precisa de um `ALTER TABLE` manual ou de ser recriado do zero.
+
 ## Stack
 
 - **Backend**: Python 3.12 + FastAPI + SQLAlchemy (async) + PostgreSQL + Redis (reservado para filas/pub-sub multi-processo)
@@ -42,8 +93,9 @@ backend — banco, Redis e API não ficam públicos.
 
 Na primeira subida o backend semeia automaticamente: 14 presentes padrão
 (8 da seção 12 + 6 ataques especiais das seções 20-25), 5 tiers de combo,
-2 personagens genéricos ("Lado A" / "Lado B") e uma batalha padrão — assim
-o fluxo funciona imediatamente sem nenhum cadastro manual.
+2 personagens genéricos ("Lado A" / "Lado B") e duas batalhas prontas — uma
+no modo clássico e uma no modo PvP — assim os dois modos funcionam
+imediatamente sem nenhum cadastro manual.
 
 ### Login do painel admin
 

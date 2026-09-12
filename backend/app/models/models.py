@@ -51,6 +51,11 @@ class Battle(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
     name: Mapped[str] = mapped_column(String, nullable=False)
 
+    # "character": viewers attack the two configured characters (original mode).
+    # "team_pvp": viewers themselves are the fighters -- team A's avatars shoot
+    # team B's avatars, each one growing and dying on its own.
+    mode: Mapped[str] = mapped_column(String, default="character")
+
     side_a_character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"))
     side_b_character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"))
 
@@ -155,6 +160,15 @@ class Player(Base):
     heal_total: Mapped[float] = mapped_column(Float, default=0)
     gifts_total: Mapped[int] = mapped_column(Integer, default=0)
     combo_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Team PvP mode only: the player's own combat stats. `power` doubles as
+    # health and as the value the arena scales the avatar's size by, so a
+    # viewer who keeps feeding gifts visibly grows into a giant.
+    power: Mapped[float] = mapped_column(Float, default=0)
+    peak_power: Mapped[float] = mapped_column(Float, default=0)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    kills: Mapped[int] = mapped_column(Integer, default=0)
+    eliminated: Mapped[bool] = mapped_column(Boolean, default=False)
 
     last_interaction: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

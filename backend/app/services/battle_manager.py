@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Battle, BattleSession, Character
+from app.models.models import Battle, BattleSession, Character, Player
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -47,8 +47,10 @@ class BattleManager:
             )
         ).scalars().first()
 
-    @staticmethod
-    async def restart_session(db: AsyncSession, session: BattleSession, battle: Battle) -> BattleSession:
+    @classmethod
+    async def restart_session(
+        cls, db: AsyncSession, session: BattleSession, battle: Battle
+    ) -> BattleSession:
         """Resets an existing session in place (same session_id, so
         connected OBS/WebSocket clients don't need to reconnect) -- used
         for both manual and auto-restart 'nova rodada' (spec section 40)."""
@@ -65,8 +67,30 @@ class BattleManager:
             if battle.battle_time_seconds
             else None
         )
+
+        if battle.mode == "team_pvp":
+            await cls._reset_fighters(db, session.id)
+
         await db.flush()
         return session
+
+    @staticmethod
+    async def _reset_fighters(db: AsyncSession, session_id: str) -> None:
+        """A new PvP round revives everyone at their starting power so the
+        viewers already in the arena keep playing without rejoining."""
+        from app.services.settings_service import settings_service
+        from app.services.team_battle_manager import team_battle_manager
+
+        config = await settings_service.get(db, "team_battle")
+        starting = team_battle_manager.starting_power(config)
+
+        players = (
+            (await db.execute(select(Player).where(Player.session_id == session_id))).scalars().all()
+        )
+        for player in players:
+            player.power = starting
+            player.level = team_battle_manager.level_for(starting, config)
+            player.eliminated = False
 
     @staticmethod
     def check_sudden_death(session: BattleSession, battle: Battle) -> bool:

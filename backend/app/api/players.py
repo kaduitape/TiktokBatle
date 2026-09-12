@@ -29,6 +29,10 @@ async def list_players(session_id: str, db: AsyncSession = Depends(get_db)):
             "heal_total": p.heal_total,
             "gifts_total": p.gifts_total,
             "combo_count": p.combo_count,
+            "power": p.power,
+            "level": p.level,
+            "kills": p.kills,
+            "eliminated": p.eliminated,
         }
         for p in players
     ]

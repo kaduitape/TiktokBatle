@@ -63,6 +63,7 @@ class CharacterOut(CharacterIn):
 
 class BattleIn(BaseModel):
     name: str
+    mode: Literal["character", "team_pvp"] = "character"
     side_a_character_id: str
     side_b_character_id: str
     background_url: str | None = None
@@ -165,4 +166,24 @@ class RankingEntry(BaseModel):
     heal_total: float
     gifts_total: int
     combo_count: int
+    power: float = 0
+    kills: int = 0
     score: float
+
+
+class PvpPlayerOut(BaseModel):
+    """A single fighter in team PvP mode."""
+
+    id: str
+    user_id: str
+    username: str
+    nickname: str | None
+    avatar_url: str | None
+    team: str
+    power: float
+    level: int
+    kills: int
+    eliminated: bool
+
+    class Config:
+        from_attributes = True

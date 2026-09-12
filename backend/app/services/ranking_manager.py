@@ -18,7 +18,9 @@ class RankingManager:
         )
 
         def score(p: Player) -> float:
-            return p.damage_total + p.heal_total + p.combo_count * 10
+            # power/kills are always 0 outside team PvP, so the same formula
+            # ranks both modes without branching.
+            return p.damage_total + p.heal_total + p.combo_count * 10 + p.power + p.kills * 100
 
         ranked = sorted(players, key=score, reverse=True)[:limit]
         return [
@@ -32,6 +34,8 @@ class RankingManager:
                 heal_total=p.heal_total,
                 gifts_total=p.gifts_total,
                 combo_count=p.combo_count,
+                power=p.power,
+                kills=p.kills,
                 score=score(p),
             )
             for p in ranked

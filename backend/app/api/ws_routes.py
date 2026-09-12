@@ -5,6 +5,8 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.models import Battle, BattleSession, Character, Player
+from app.services.team_battle_manager import team_battle_manager
+from app.services.team_combat_loop import team_combat_loop
 from app.ws.connection_manager import connection_manager
 
 router = APIRouter()
@@ -50,12 +52,14 @@ async def _build_state_sync(session_id: str) -> dict | None:
             "battle": {
                 "id": battle.id,
                 "name": battle.name,
+                "mode": battle.mode,
                 "background_url": battle.background_url,
                 "max_players": battle.max_players,
             },
             "side_a": char_payload(side_a),
             "side_b": char_payload(side_b),
             "xp": {"a": session.side_a_xp, "b": session.side_b_xp},
+            "teams": team_battle_manager.team_totals(players),
             "players": [
                 {
                     "id": p.id,
@@ -64,6 +68,10 @@ async def _build_state_sync(session_id: str) -> dict | None:
                     "nickname": p.nickname,
                     "avatar_url": p.avatar_url,
                     "team": p.team,
+                    "power": round(p.power, 1),
+                    "level": p.level,
+                    "kills": p.kills,
+                    "eliminated": p.eliminated,
                 }
                 for p in players
             ],
@@ -77,6 +85,11 @@ async def arena_socket(websocket: WebSocket, session_id: str):
         state = await _build_state_sync(session_id)
         if state:
             await websocket.send_json(state)
+
+        # Team PvP fights continuously on a server tick -- run it only while
+        # somebody is actually watching this session.
+        await team_combat_loop.maybe_start_for_session(session_id)
+
         while True:
             # Clients don't need to send anything; this just detects disconnects
             # and tolerates any keepalive pings the client chooses to send.
@@ -85,3 +98,5 @@ async def arena_socket(websocket: WebSocket, session_id: str):
         pass
     finally:
         connection_manager.disconnect(session_id, websocket)
+        if connection_manager.connection_count(session_id) == 0:
+            await team_combat_loop.stop(session_id)

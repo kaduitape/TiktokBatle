@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import type { BattleMode } from "../types/events";
 import PhaserGame from "./game/PhaserGame";
 
 interface SessionOut {
@@ -10,11 +11,13 @@ interface SessionOut {
 
 interface BattleOut {
   id: string;
+  mode?: BattleMode;
 }
 
 export default function ArenaPage() {
   const [params] = useSearchParams();
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [mode, setMode] = useState<BattleMode>("character");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,8 +34,12 @@ export default function ArenaPage() {
           }
           battleId = battles[0].id;
         }
+        const battle = await api.get<BattleOut>(`/api/battles/${battleId}`);
         const session = await api.post<SessionOut>(`/api/battles/${battleId}/start`);
-        if (!cancelled) setSessionId(session.id);
+        if (!cancelled) {
+          setMode(battle.mode || "character");
+          setSessionId(session.id);
+        }
       } catch (e) {
         if (!cancelled) setError(String(e));
       }
@@ -47,7 +54,7 @@ export default function ArenaPage() {
   return (
     <div className="arena-viewport">
       {error && <div style={{ color: "#ff8080", padding: 20 }}>{error}</div>}
-      {!error && sessionId && <PhaserGame sessionId={sessionId} />}
+      {!error && sessionId && <PhaserGame sessionId={sessionId} mode={mode} />}
       {!error && !sessionId && <div style={{ color: "#888" }}>Carregando arena…</div>}
     </div>
   );

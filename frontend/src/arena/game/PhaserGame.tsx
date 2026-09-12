@@ -1,9 +1,17 @@
 import Phaser from "phaser";
 import { useEffect, useRef } from "react";
+import type { BattleMode } from "../../types/events";
 import GameScene from "./GameScene";
+import TeamBattleScene from "./TeamBattleScene";
 import { ARENA_HEIGHT, ARENA_WIDTH } from "./constants";
 
-export default function PhaserGame({ sessionId }: { sessionId: string }) {
+export default function PhaserGame({
+  sessionId,
+  mode = "character",
+}: {
+  sessionId: string;
+  mode?: BattleMode;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
 
@@ -29,14 +37,18 @@ export default function PhaserGame({ sessionId }: { sessionId: string }) {
       },
     });
 
-    game.scene.add("GameScene", GameScene, true, { sessionId });
+    if (mode === "team_pvp") {
+      game.scene.add("TeamBattleScene", TeamBattleScene, true, { sessionId });
+    } else {
+      game.scene.add("GameScene", GameScene, true, { sessionId });
+    }
     gameRef.current = game;
 
     return () => {
       game.destroy(true);
       gameRef.current = null;
     };
-  }, [sessionId]);
+  }, [sessionId, mode]);
 
   return <div ref={containerRef} className="arena-canvas-wrap" />;
 }

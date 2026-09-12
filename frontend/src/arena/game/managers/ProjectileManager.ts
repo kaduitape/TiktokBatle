@@ -28,15 +28,27 @@ export class ProjectileManager {
 
   /** A single shot projectile travelling from the shooter's ball to the
    * target character, ending in a small impact + damage number
-   * (spec section 14). */
-  fireShot(fromX: number, fromY: number, toX: number, toY: number, onImpact: () => void, delayMs = 0) {
+   * (spec section 14).
+   *
+   * `light` strips the muzzle flash and impact particles: PvP mode fires
+   * dozens of routine shots per combat tick, and at that volume the full
+   * effect buries the arena in white dots. */
+  fireShot(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    onImpact: () => void,
+    delayMs = 0,
+    light = false
+  ) {
     this.scene.time.delayedCall(delayMs, () => {
       const p = this.acquire();
       if (!p) return;
       p.inUse = true;
       p.obj.setPosition(fromX, fromY).setVisible(true).setAlpha(1).setFillStyle(0xffe066);
 
-      this.effects.flash(fromX, fromY, 14, 0xffffff, 0.7);
+      if (!light) this.effects.flash(fromX, fromY, 14, 0xffffff, 0.7);
 
       const dist = Phaser.Math.Distance.Between(fromX, fromY, toX, toY);
       const duration = Phaser.Math.Clamp(dist * 0.9, 140, 420);
@@ -50,8 +62,10 @@ export class ProjectileManager {
         onComplete: () => {
           p.obj.setVisible(false);
           p.inUse = false;
-          this.effects.flash(toX, toY, 22, 0xff5b5b, 0.85);
-          this.effects.burst(toX, toY, 0xffcc55, 10, 140);
+          if (!light) {
+            this.effects.flash(toX, toY, 22, 0xff5b5b, 0.85);
+            this.effects.burst(toX, toY, 0xffcc55, 10, 140);
+          }
           onImpact();
         },
       });

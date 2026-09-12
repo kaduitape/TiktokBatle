@@ -85,11 +85,21 @@ async def run_seed(db: AsyncSession) -> None:
             db.add(
                 Battle(
                     name="Batalha Padrão",
+                    mode="character",
                     side_a_character_id=chars[0].id,
                     side_b_character_id=chars[1].id,
                     max_players=500,
                 )
             )
-        logger.info("seeded default characters and battle")
+            db.add(
+                Battle(
+                    name="Guerra de Times (PvP)",
+                    mode="team_pvp",
+                    side_a_character_id=chars[0].id,
+                    side_b_character_id=chars[1].id,
+                    max_players=500,
+                )
+            )
+        logger.info("seeded default characters and battles")
 
     await db.commit()

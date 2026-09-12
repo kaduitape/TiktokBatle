@@ -9,6 +9,7 @@ interface Character {
 interface Battle {
   id: string;
   name: string;
+  mode: "character" | "team_pvp";
   side_a_character_id: string;
   side_b_character_id: string;
   max_players: number;
@@ -20,6 +21,7 @@ interface Battle {
 
 const empty = {
   name: "",
+  mode: "character" as "character" | "team_pvp",
   side_a_character_id: "",
   side_b_character_id: "",
   max_players: 500,
@@ -91,6 +93,20 @@ export default function Battles() {
         <label>Nome da batalha</label>
         <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
 
+        <label>Modo</label>
+        <select
+          value={form.mode}
+          onChange={(e) => setForm({ ...form, mode: e.target.value as "character" | "team_pvp" })}
+        >
+          <option value="character">Personagens — espectadores atacam os dois personagens</option>
+          <option value="team_pvp">Guerra de Times (PvP) — espectadores lutam entre si</option>
+        </select>
+        <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 4 }}>
+          {form.mode === "team_pvp"
+            ? "Cada espectador vira um lutador com poder próprio: presentes fazem crescer e atacar, e quem zera o poder é eliminado."
+            : "Modo clássico: os presentes tiram/dão XP dos personagens do Lado A e Lado B."}
+        </p>
+
         <div className="form-grid">
           <div>
             <label>Lado A</label>
@@ -160,13 +176,16 @@ export default function Battles() {
         <table>
           <thead>
             <tr>
-              <th>Nome</th><th>Lado A</th><th>Lado B</th><th>Max</th><th></th>
+              <th>Nome</th><th>Modo</th><th>Lado A</th><th>Lado B</th><th>Max</th><th></th>
             </tr>
           </thead>
           <tbody>
             {battles.map((b) => (
               <tr key={b.id}>
                 <td>{b.name}</td>
+                <td>
+                  <span className="pill">{b.mode === "team_pvp" ? "⚔️ PvP" : "🎯 Personagens"}</span>
+                </td>
                 <td>{charName(b.side_a_character_id)}</td>
                 <td>{charName(b.side_b_character_id)}</td>
                 <td>{b.max_players}</td>

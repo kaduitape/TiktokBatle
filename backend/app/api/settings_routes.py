@@ -6,27 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_admin
 from app.core.database import get_db
 from app.models.models import Setting
+from app.services.settings_service import settings_service
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-DEFAULTS: dict[str, dict[str, Any]] = {
-    "audio_mixer": {
-        "music": 30,
-        "shots": 80,
-        "explosions": 80,
-        "alerts": 70,
-        "ui": 50,
-        "victory": 80,
-    }
-}
 
 
 @router.get("/{key}")
 async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
-    row = await db.get(Setting, key)
-    if row:
-        return row.value
-    return DEFAULTS.get(key, {})
+    return await settings_service.get(db, key)
 
 
 @router.put("/{key}")
@@ -40,4 +27,5 @@ async def put_setting(
         row = Setting(key=key, value=value)
         db.add(row)
     await db.commit()
+    settings_service.invalidate(key)
     return value
