@@ -9,7 +9,7 @@ interface Character {
 interface Battle {
   id: string;
   name: string;
-  mode: "character" | "team_pvp";
+  mode: "character" | "team_pvp" | "tank_war";
   side_a_character_id: string;
   side_b_character_id: string;
   max_players: number;
@@ -21,7 +21,7 @@ interface Battle {
 
 const empty = {
   name: "",
-  mode: "character" as "character" | "team_pvp",
+  mode: "character" as "character" | "team_pvp" | "tank_war",
   side_a_character_id: "",
   side_b_character_id: "",
   max_players: 500,
@@ -96,15 +96,19 @@ export default function Battles() {
         <label>Modo</label>
         <select
           value={form.mode}
-          onChange={(e) => setForm({ ...form, mode: e.target.value as "character" | "team_pvp" })}
+          onChange={(e) => setForm({ ...form, mode: e.target.value as typeof form.mode })}
         >
           <option value="character">Personagens — espectadores atacam os dois personagens</option>
           <option value="team_pvp">Guerra de Times (PvP) — espectadores lutam entre si</option>
+          <option value="tank_war">Guerra de Tanques — charges atiram, espectadores são as tropas</option>
         </select>
         <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 4 }}>
-          {form.mode === "team_pvp"
-            ? "Cada espectador vira um lutador com poder próprio: presentes fazem crescer e atacar, e quem zera o poder é eliminado."
-            : "Modo clássico: os presentes tiram/dão XP dos personagens do Lado A e Lado B."}
+          {form.mode === "team_pvp" &&
+            "Cada espectador vira um lutador com poder próprio: presentes fazem crescer e atacar, e quem zera o poder é eliminado."}
+          {form.mode === "tank_war" &&
+            "Espectadores entram no time comentando no chat (P ou B). Os dois charges ficam fixos atirando: cada presente faz o tanque girar e acertar um inimigo aleatório, e quanto mais moedas o presente custa, mais forte o tiro."}
+          {form.mode === "character" &&
+            "Modo clássico: os presentes tiram/dão XP dos personagens do Lado A e Lado B."}
         </p>
 
         <div className="form-grid">
@@ -184,7 +188,7 @@ export default function Battles() {
               <tr key={b.id}>
                 <td>{b.name}</td>
                 <td>
-                  <span className="pill">{b.mode === "team_pvp" ? "⚔️ PvP" : "🎯 Personagens"}</span>
+                  <span className="pill">{b.mode === "team_pvp" ? "⚔️ PvP" : b.mode === "tank_war" ? "🪖 Tanques" : "🎯 Personagens"}</span>
                 </td>
                 <td>{charName(b.side_a_character_id)}</td>
                 <td>{charName(b.side_b_character_id)}</td>

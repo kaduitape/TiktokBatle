@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { useEffect, useRef } from "react";
 import type { BattleMode } from "../../types/events";
 import GameScene from "./GameScene";
+import TankWarScene from "./TankWarScene";
 import TeamBattleScene from "./TeamBattleScene";
 import { ARENA_HEIGHT, ARENA_WIDTH } from "./constants";
 
@@ -39,6 +40,8 @@ export default function PhaserGame({
 
     if (mode === "team_pvp") {
       game.scene.add("TeamBattleScene", TeamBattleScene, true, { sessionId });
+    } else if (mode === "tank_war") {
+      game.scene.add("TankWarScene", TankWarScene, true, { sessionId });
     } else {
       game.scene.add("GameScene", GameScene, true, { sessionId });
     }

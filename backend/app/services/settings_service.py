@@ -26,6 +26,19 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "elimination_enabled": True,
         "respawn_power": 0,
     },
+    # Tank war tuning. The team keywords are settings rather than constants so
+    # the mode isn't tied to any particular pair of characters -- swap them for
+    # whatever the two sides are called on the day.
+    # Balance target: a 1-coin rose chips a soldier, a ~30-coin gift takes one
+    # out, and only the expensive gifts wipe a squad (capped so a single whale
+    # can't end the match in one shot).
+    "tank_war": {
+        "team_a_keyword": "P",
+        "team_b_keyword": "B",
+        "soldier_hp": 150,
+        "damage_per_coin": 8,
+        "max_targets_per_shot": 6,
+    },
 }
 
 

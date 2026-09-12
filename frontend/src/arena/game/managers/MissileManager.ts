@@ -50,18 +50,60 @@ export class MissileManager {
       onComplete: () => {
         smokeTimer.remove();
         icon.destroy();
-        this.detonate(toX, toY, big);
+        this.detonate(toX, toY, big ? 90 : 60);
         onImpact();
       },
     });
   }
 
-  private detonate(x: number, y: number, big: boolean) {
-    this.effects.flash(x, y, big ? 90 : 60, 0xff9933, 0.9);
-    this.effects.burst(x, y, 0xff6633, big ? 40 : 24, big ? 320 : 220);
-    this.effects.shake(big ? 0.018 : 0.01, big ? 260 : 180);
+  /** Tank cannon shell: flat and fast, unlike the arcing missile, with a
+   * muzzle flash at the barrel and a smoke puff trail. */
+  fireShell(fromX: number, fromY: number, toX: number, toY: number, big: boolean, onImpact: () => void) {
+    this.effects.flash(fromX, fromY, big ? 46 : 30, 0xffe9a8, 0.95);
+    this.effects.burst(fromX, fromY, 0x999999, 6, 90);
 
-    const boom = this.scene.add.text(x, y, "💥", { fontSize: big ? "72px" : "48px" }).setOrigin(0.5).setDepth(72);
+    const shell = this.scene.add
+      .circle(fromX, fromY, big ? 13 : 9, 0x2b2b2b)
+      .setStrokeStyle(2, 0xffc14d, 0.9)
+      .setDepth(56);
+
+    const dist = Phaser.Math.Distance.Between(fromX, fromY, toX, toY);
+    const smoke = this.scene.time.addEvent({
+      delay: 30,
+      loop: true,
+      callback: () => this.effects.burst(shell.x, shell.y, 0x777777, 1, 20),
+    });
+
+    this.scene.tweens.add({
+      targets: shell,
+      x: toX,
+      y: toY,
+      duration: Phaser.Math.Clamp(dist * 0.5, 200, 520),
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        smoke.remove();
+        shell.destroy();
+        this.detonate(toX, toY, big ? 44 : 26, false);
+        onImpact();
+      },
+    });
+  }
+
+  /** `radius` is the blast's visual size. A character taking a missile gets a
+   * big one; a single soldier popping gets a small one, otherwise a volley of
+   * simultaneous kills floods the arena with orange. `shake` is optional so a
+   * caller firing several shells can shake the camera once instead of once
+   * per hit. */
+  private detonate(x: number, y: number, radius: number, shake = true) {
+    const scale = radius / 60;
+    this.effects.flash(x, y, radius, 0xff9933, 0.9);
+    this.effects.burst(x, y, 0xff6633, Math.round(24 * scale), Math.round(220 * scale));
+    if (shake) this.effects.shake(0.01 * scale, 180);
+
+    const boom = this.scene.add
+      .text(x, y, "💥", { fontSize: `${Math.round(48 * scale)}px` })
+      .setOrigin(0.5)
+      .setDepth(72);
     this.scene.tweens.add({
       targets: boom,
       scale: 1.4,
@@ -102,7 +144,7 @@ export class MissileManager {
       duration: 500,
       ease: "Cubic.easeIn",
       onComplete: () => {
-        this.detonate(bomb.x, bomb.y, false);
+        this.detonate(bomb.x, bomb.y, 60);
         bomb.destroy();
       },
     });
@@ -119,7 +161,7 @@ export class MissileManager {
       ease: "Cubic.easeIn",
       onComplete: () => {
         meteor.destroy();
-        this.detonate(targetX, targetY, true);
+        this.detonate(targetX, targetY, 90);
         onImpact();
       },
     });

@@ -55,9 +55,12 @@ function compositeFallback(
   key: string,
   size: number,
   ringColor: string,
-  letter: string
+  letter: string,
+  colorSeed: string
 ): void {
-  const bg = PLACEHOLDER_COLORS[Math.abs(hashCode(letter)) % PLACEHOLDER_COLORS.length];
+  // Seeded on the whole name, not just the initial -- a live full of Marias
+  // would otherwise render as one wall of identical circles.
+  const bg = PLACEHOLDER_COLORS[Math.abs(hashCode(colorSeed)) % PLACEHOLDER_COLORS.length];
 
   const g = scene.make.graphics({}, false);
   g.fillStyle(Phaser.Display.Color.HexStringToColor(bg).color);
@@ -106,16 +109,17 @@ export async function bakeAvatarTexture(
   url: string | null,
   ringColor: string,
   fallbackLetter: string,
-  size: number
+  size: number,
+  colorSeed = fallbackLetter
 ): Promise<string> {
-  const key = textureKeyFor(`${url || "placeholder"}_${ringColor}_${size}`);
+  const key = textureKeyFor(`${url || `placeholder_${colorSeed}`}_${ringColor}_${size}`);
   if (scene.textures.exists(key)) return key;
 
   if (pending.has(key)) {
     await new Promise((r) => setTimeout(r, 60));
     return scene.textures.exists(key)
       ? key
-      : bakeAvatarTexture(scene, url, ringColor, fallbackLetter, size);
+      : bakeAvatarTexture(scene, url, ringColor, fallbackLetter, size, colorSeed);
   }
   pending.add(key);
 
@@ -134,10 +138,10 @@ export async function bakeAvatarTexture(
       }
       compositeCircular(scene, key, loaderKey, size, ringColor);
     } else {
-      compositeFallback(scene, key, size, ringColor, fallbackLetter);
+      compositeFallback(scene, key, size, ringColor, fallbackLetter, colorSeed);
     }
   } catch {
-    compositeFallback(scene, key, size, ringColor, fallbackLetter);
+    compositeFallback(scene, key, size, ringColor, fallbackLetter, colorSeed);
   }
 
   pending.delete(key);

@@ -31,7 +31,7 @@ class TikTokProvider(LiveEventProvider):
 
         try:
             from TikTokLive import TikTokLiveClient
-            from TikTokLive.events import ConnectEvent, GiftEvent
+            from TikTokLive.events import CommentEvent, ConnectEvent, GiftEvent
         except ImportError as exc:
             raise RuntimeError(
                 "TikTokLive package not installed. Run `pip install TikTokLive` to enable "
@@ -61,6 +61,23 @@ class TikTokProvider(LiveEventProvider):
                 ),
                 timestamp=time.time(),
                 raw={"combo": bool(event.gift.combo)},
+            )
+            await self.emit(session_id, live_event)
+
+        @client.on(CommentEvent)
+        async def _on_comment(event):
+            # Tank war mode enlists viewers from chat keywords, so comments
+            # are a first-class event, not just decoration.
+            live_event = LiveEvent(
+                type="comment",
+                user=LiveUser(
+                    id=str(event.user.user_id),
+                    username=event.user.unique_id,
+                    nickname=event.user.nickname,
+                    avatar=str(event.user.avatar_thumb.url_list[0]) if event.user.avatar_thumb else None,
+                ),
+                comment=event.comment,
+                timestamp=time.time(),
             )
             await self.emit(session_id, live_event)
 

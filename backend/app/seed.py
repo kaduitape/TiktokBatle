@@ -9,36 +9,36 @@ logger = logging.getLogger("seed")
 
 DEFAULT_GIFTS = [
     dict(gift_key="rose", name="Rosa", icon="🌹", action_type="shot", value=-1,
-         target_side="A", animation_key="shot", sound_key="shot"),
+         target_side="A", animation_key="shot", sound_key="shot", coins=1),
     dict(gift_key="white_rose", name="Rosa Branca", icon="🤍", action_type="shot", value=-1,
-         target_side="B", animation_key="shot", sound_key="shot"),
+         target_side="B", animation_key="shot", sound_key="shot", coins=1),
     dict(gift_key="open_flower", name="Flor Aberta", icon="🌸", action_type="missile", value=-10,
-         target_side="A", animation_key="missile", sound_key="missile"),
+         target_side="A", animation_key="missile", sound_key="missile", coins=10),
     dict(gift_key="dino", name="Dino", icon="🦖", action_type="missile", value=-10,
-         target_side="B", animation_key="missile", sound_key="missile"),
+         target_side="B", animation_key="missile", sound_key="missile", coins=10),
     dict(gift_key="donut", name="Rosquinha", icon="🍩", action_type="heal", value=30,
-         target_side="A", animation_key="heal", sound_key="heal"),
+         target_side="A", animation_key="heal", sound_key="heal", coins=30),
     dict(gift_key="tiktok_ball", name="Bola TikTok Brasil", icon="⚽", action_type="heal", value=30,
-         target_side="B", animation_key="heal", sound_key="heal"),
+         target_side="B", animation_key="heal", sound_key="heal", coins=30),
     dict(gift_key="heart_hands", name="Mãos Coração", icon="🫶", action_type="super_heal", value=100,
-         target_side="A", animation_key="super_heal", sound_key="super_heal"),
+         target_side="A", animation_key="super_heal", sound_key="super_heal", coins=100),
     dict(gift_key="teddy_bear", name="Ursinho", icon="🧸", action_type="super_heal", value=100,
-         target_side="B", animation_key="super_heal", sound_key="super_heal"),
+         target_side="B", animation_key="super_heal", sound_key="super_heal", coins=100),
     # Special attacks (spec sections 20-25). animation_key is what the
     # arena routes on -- admins can freely clone any of these with
     # target_side="B" to mirror the attack for the other side.
     dict(gift_key="meteor_strike", name="Meteoro", icon="☄️", action_type="special", value=-50,
-         target_side="A", animation_key="meteor", sound_key="meteor", multiplier=1.0),
+         target_side="A", animation_key="meteor", sound_key="meteor", multiplier=1.0, coins=500),
     dict(gift_key="lightning_strike", name="Raio", icon="⚡", action_type="special", value=-25,
-         target_side="A", animation_key="lightning", sound_key="lightning", multiplier=1.0),
+         target_side="A", animation_key="lightning", sound_key="lightning", multiplier=1.0, coins=250),
     dict(gift_key="airstrike", name="Ataque Aéreo", icon="✈️", action_type="special", value=-30,
-         target_side="A", animation_key="airstrike", sound_key="airstrike", multiplier=1.0),
+         target_side="A", animation_key="airstrike", sound_key="airstrike", multiplier=1.0, coins=300),
     dict(gift_key="hurricane", name="Furacão", icon="🌪️", action_type="special", value=0,
-         target_side="A", animation_key="hurricane", sound_key="hurricane", multiplier=1.0),
+         target_side="A", animation_key="hurricane", sound_key="hurricane", multiplier=1.0, coins=150),
     dict(gift_key="shockwave", name="Onda de Choque", icon="💥", action_type="special", value=0,
-         target_side="A", animation_key="shockwave", sound_key="shockwave", multiplier=1.0),
+         target_side="A", animation_key="shockwave", sound_key="shockwave", multiplier=1.0, coins=150),
     dict(gift_key="giant_avatar", name="Avatar Gigante", icon="🦣", action_type="special", value=0,
-         target_side="A", animation_key="giant", sound_key="giant", multiplier=1.0),
+         target_side="A", animation_key="giant", sound_key="giant", multiplier=1.0, coins=200),
 ]
 
 DEFAULT_COMBO_TIERS = [
@@ -52,6 +52,22 @@ DEFAULT_COMBO_TIERS = [
 DEFAULT_CHARACTERS = [
     dict(name="Lado A", team_color="#e74c3c", pos_x=0.25, pos_y=0.5, xp_max=100_000),
     dict(name="Lado B", team_color="#3498db", pos_x=0.75, pos_y=0.5, flip_h=True, xp_max=100_000),
+]
+
+# Tank war ships with its own pair of gunners, placed high on the arena so the
+# troops pile up beneath them. The art itself is uploaded by the admin in
+# Admin -> Personagens; until then they render as placeholders.
+TANK_WAR_CHARACTERS = [
+    dict(name="Lula", team_color="#e01b24", pos_x=0.26, pos_y=0.30, scale=1.0, xp_max=100_000),
+    dict(
+        name="Bolsonaro",
+        team_color="#2a7d2e",
+        pos_x=0.74,
+        pos_y=0.30,
+        scale=1.0,
+        flip_h=True,
+        xp_max=100_000,
+    ),
 ]
 
 
@@ -97,6 +113,20 @@ async def run_seed(db: AsyncSession) -> None:
                     mode="team_pvp",
                     side_a_character_id=chars[0].id,
                     side_b_character_id=chars[1].id,
+                    max_players=500,
+                )
+            )
+
+            tank_chars = [Character(**c) for c in TANK_WAR_CHARACTERS]
+            for c in tank_chars:
+                db.add(c)
+            await db.flush()
+            db.add(
+                Battle(
+                    name="Guerra de Tanques",
+                    mode="tank_war",
+                    side_a_character_id=tank_chars[0].id,
+                    side_b_character_id=tank_chars[1].id,
                     max_players=500,
                 )
             )

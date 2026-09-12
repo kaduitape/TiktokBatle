@@ -45,7 +45,7 @@ export class AvatarManager {
     if (existing) return existing;
 
     const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
-    const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, AVATAR_DIAMETER);
+    const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, AVATAR_DIAMETER, player.username);
 
     const zone = player.team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
     const x = Phaser.Math.Between(zone.xMin + AVATAR_DIAMETER, zone.xMax - AVATAR_DIAMETER);

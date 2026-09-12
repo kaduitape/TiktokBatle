@@ -117,6 +117,11 @@ class Gift(Base):
     value: Mapped[float] = mapped_column(Float, default=0)  # negative = damage, positive = heal
     target_side: Mapped[str] = mapped_column(String, default="A")  # A|B
 
+    # What the gift costs the viewer in TikTok coins. Tank war mode scales a
+    # shot's power by this, so an expensive gift wipes out several enemies
+    # while a 1-coin rose only chips one.
+    coins: Mapped[int] = mapped_column(Integer, default=1)
+
     animation_key: Mapped[str] = mapped_column(String, default="shot")
     sound_key: Mapped[str] = mapped_column(String, default="shot")
 

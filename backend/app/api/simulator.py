@@ -44,6 +44,24 @@ async def simulate_join(session_id: str, username: str | None = None, _: str = D
     return {"ok": True, "username": name}
 
 
+@router.post("/comment")
+async def simulate_comment(
+    session_id: str, text: str, username: str | None = None, _: str = Depends(require_admin)
+):
+    """Tank war mode enlists viewers from chat, so the simulator needs to be
+    able to say things as well as send gifts."""
+    name = username or random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999))
+    await simulation_provider.simulate_comment(
+        session_id=session_id,
+        user_id=f"sim-{name}",
+        username=name,
+        text=text,
+        nickname=name,
+        avatar_url=f"https://i.pravatar.cc/150?u={name}",
+    )
+    return {"ok": True, "username": name, "text": text}
+
+
 @router.post("/stress")
 async def simulate_stress(
     session_id: str, gift_keys: list[str], user_count: int = 100, _: str = Depends(require_admin)

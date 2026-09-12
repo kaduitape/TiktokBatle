@@ -17,10 +17,10 @@ contra uma TikTok LIVE de verdade (o conector existe e usa o mesmo pipeline,
 mas não há credenciais/rede para validar isso nesta sessão) — ver "Status por
 fase" abaixo para o detalhe completo do que está e não está pronto.
 
-## Dois modos de batalha
+## Três modos de batalha
 
 O mesmo pipeline, personagens, presentes, combos, efeitos e áudio servem aos
-dois modos — o admin escolhe por batalha, em **Admin → Batalhas → Modo**.
+três modos — o admin escolhe por batalha, em **Admin → Batalhas → Modo**.
 
 ### 🎯 Personagens (modo clássico)
 
@@ -63,6 +63,47 @@ curl -X PUT localhost:8000/api/settings/team_battle \
        "elimination_enabled":true,"respawn_power":0}'
 ```
 
+### 🪖 Guerra de Tanques
+
+Os **dois charges são os atiradores** e os espectadores são as tropas.
+
+- **Entrada pelo chat**: quem comenta `P` entra no time do Lado A, quem
+  comenta `B` entra no Lado B. As palavras-chave são configuráveis, e a
+  mensagem tem que ser só a palavra — conversa normal no chat não recruta
+  ninguém por acidente. Comentar a outra letra troca de lado.
+- **Presente = tiro de canhão**: cada presente faz o tanque do seu time
+  girar, recuar no tranco e disparar num inimigo aleatório, que explode e
+  **sai do jogo**.
+- **Quanto mais moedas, mais forte**: o dano é o preço do presente em moedas.
+  O excedente rola para o próximo soldado, então um presente caro varre um
+  esquadrão inteiro (com teto configurável para um único presente não
+  encerrar a partida).
+- **Charges fixos, mas vivos**: ficam parados no lugar, respirando,
+  balançando de leve e dando um soco no ar de vez em quando; ao atirar,
+  giram na direção do alvo e recuam.
+- Cada soldado tem barra de vida individual: presentes baratos ferem,
+  presentes médios matam.
+
+Com os valores padrão (soldado com 150 de vida, 8 de dano por moeda):
+
+| Presente | Moedas | Resultado |
+|---|---|---|
+| 🌹 Rosa | 1 | arranha |
+| 🌸 Flor Aberta | 10 | fere bastante |
+| 🍩 Rosquinha | 30 | mata 1 |
+| 🫶 Mãos Coração | 100 | mata ~5 |
+
+Ajuste tudo na chave `tank_war` de **Settings** (`team_a_keyword`,
+`team_b_keyword`, `soldier_hp`, `damage_per_coin`, `max_targets_per_shot`) e
+o preço em moedas de cada presente em **Admin → Presentes**.
+
+> **A arte dos charges**: o modo já vem com a batalha "Guerra de Tanques" e os
+> dois personagens ("Lula" e "Bolsonaro") cadastrados, mas **sem imagem** —
+> suba os PNGs em **Admin → Personagens**. Até lá eles aparecem como
+> placeholder. Como o desenho é uma imagem única, a animação é do conjunto
+> (respiro, balanço, soco, giro, recuo): animar braço e rosto separadamente
+> exigiria a arte exportada em camadas separadas.
+
 > **Atualizando um banco que já existia**: nada a fazer — as migrations
 > cuidam disso automaticamente no startup (ver "Migrations" abaixo).
 
@@ -90,10 +131,10 @@ backend — banco, Redis e API não ficam públicos.
 - Arena (fonte de vídeo para OBS): http://localhost/#/arena?battle=<id>
 
 Na primeira subida o backend semeia automaticamente: 14 presentes padrão
-(8 da seção 12 + 6 ataques especiais das seções 20-25), 5 tiers de combo,
-2 personagens genéricos ("Lado A" / "Lado B") e duas batalhas prontas — uma
-no modo clássico e uma no modo PvP — assim os dois modos funcionam
-imediatamente sem nenhum cadastro manual.
+(8 da seção 12 + 6 ataques especiais das seções 20-25, cada um com seu preço
+em moedas), 5 tiers de combo, 4 personagens ("Lado A"/"Lado B" e
+"Lula"/"Bolsonaro") e três batalhas prontas — uma por modo — assim os três
+modos funcionam imediatamente sem nenhum cadastro manual.
 
 ### Login do painel admin
 
@@ -171,7 +212,8 @@ Frontend: `frontend/src/{arena/game/managers,admin/pages}`
 `players`, `battle_events`, `music_tracks`, `settings` — nenhum personagem,
 presente, batalha ou música é hardcoded; tudo é CRUD via `/api/*` e o
 painel admin. `settings` é um KV genérico (hoje usado para o mixer de
-áudio, chave `audio_mixer`).
+áudio (`audio_mixer`) e para o balanceamento dos modos PvP
+(`team_battle`) e tanque (`tank_war`)).
 
 ### Migrations
 

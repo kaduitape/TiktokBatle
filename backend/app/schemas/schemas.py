@@ -27,6 +27,7 @@ class LiveEvent(BaseModel):
     type: Literal["gift_received", "viewer_join", "like", "follow", "comment"]
     user: LiveUser
     gift: LiveGift | None = None
+    comment: str | None = None
     timestamp: float = 0
     raw: dict[str, Any] = Field(default_factory=dict)
 
@@ -63,7 +64,7 @@ class CharacterOut(CharacterIn):
 
 class BattleIn(BaseModel):
     name: str
-    mode: Literal["character", "team_pvp"] = "character"
+    mode: Literal["character", "team_pvp", "tank_war"] = "character"
     side_a_character_id: str
     side_b_character_id: str
     background_url: str | None = None
@@ -92,6 +93,7 @@ class GiftIn(BaseModel):
     action_type: Literal["shot", "missile", "heal", "super_heal", "special"]
     value: float = 0
     target_side: Literal["A", "B"] = "A"
+    coins: int = 1
     animation_key: str = "shot"
     sound_key: str = "shot"
     combo_allowed: bool = True

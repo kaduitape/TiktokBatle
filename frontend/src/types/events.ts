@@ -36,7 +36,12 @@ export interface TeamTotals {
   B: { power: number; alive: number; fighters: number };
 }
 
-export type BattleMode = "character" | "team_pvp";
+export type BattleMode = "character" | "team_pvp" | "tank_war";
+
+export interface ArmyTotals {
+  A: { alive: number; recruited: number };
+  B: { alive: number; recruited: number };
+}
 
 export interface StateSyncMessage {
   type: "state_sync";
@@ -142,6 +147,43 @@ export interface PvpCombatMessage {
   winner_side: string | null;
 }
 
+export interface PlayerEnlistedMessage {
+  type: "player_enlisted";
+  session_id: string;
+  player: PvpPlayerPayload;
+  switched: boolean;
+}
+
+export interface TankShotMessage {
+  type: "tank_shot";
+  session_id: string;
+  player: PvpPlayerPayload;
+  gift: {
+    key: string;
+    icon: string;
+    action_type: "shot" | "missile" | "heal" | "super_heal" | "special";
+    animation_key: string;
+    sound_key: string;
+    coins: number;
+  };
+  quantity: number;
+  combo: { count: number; tier_label: string | null; tier_animation: string | null };
+  shooter_side: "A" | "B";
+  target_side: "A" | "B";
+  damage: number;
+  kills: number;
+  hits: {
+    user_id: string;
+    username: string;
+    damage: number;
+    power: number;
+    eliminated: boolean;
+  }[];
+  armies: ArmyTotals;
+  winner_side: string | null;
+  status: string;
+}
+
 export type ArenaMessage =
   | StateSyncMessage
   | AttackMessage
@@ -150,4 +192,6 @@ export type ArenaMessage =
   | NewRoundCountdownMessage
   | BattleRestartedMessage
   | PvpGiftMessage
-  | PvpCombatMessage;
+  | PvpCombatMessage
+  | PlayerEnlistedMessage
+  | TankShotMessage;

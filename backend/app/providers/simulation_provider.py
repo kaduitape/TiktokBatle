@@ -49,5 +49,22 @@ class SimulationProvider(LiveEventProvider):
         )
         await self.emit(session_id, event)
 
+    async def simulate_comment(
+        self,
+        session_id: str,
+        user_id: str,
+        username: str,
+        text: str,
+        nickname: str | None = None,
+        avatar_url: str | None = None,
+    ) -> None:
+        event = LiveEvent(
+            type="comment",
+            user=LiveUser(id=user_id, username=username, nickname=nickname, avatar=avatar_url),
+            comment=text,
+            timestamp=time.time(),
+        )
+        await self.emit(session_id, event)
+
 
 simulation_provider = SimulationProvider()

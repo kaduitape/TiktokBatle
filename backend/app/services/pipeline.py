@@ -16,6 +16,7 @@ from app.services.event_normalizer import event_normalizer
 from app.services.gift_cache import gift_cache
 from app.services.gift_rule_engine import gift_rule_engine
 from app.services.settings_service import settings_service
+from app.services.tank_war_manager import tank_war_manager
 from app.services.team_battle_manager import team_battle_manager
 from app.services.xp_manager import xp_manager
 from app.ws.connection_manager import connection_manager
@@ -48,16 +49,18 @@ class GamePipeline:
             await gift_cache.ensure_loaded(db)
 
             sudden_death_triggered = battle_manager.check_sudden_death(session, battle)
-            is_pvp = battle.mode == "team_pvp"
 
             if event.type == "gift_received":
-                message = (
-                    await self._handle_gift_pvp(db, session, battle, event)
-                    if is_pvp
-                    else await self._handle_gift(db, session, battle, event)
-                )
+                if battle.mode == "team_pvp":
+                    message = await self._handle_gift_pvp(db, session, battle, event)
+                elif battle.mode == "tank_war":
+                    message = await self._handle_gift_tank_war(db, session, battle, event)
+                else:
+                    message = await self._handle_gift(db, session, battle, event)
             elif event.type == "viewer_join":
                 message = await self._handle_join(db, session, battle, event)
+            elif event.type == "comment":
+                message = await self._handle_comment(db, session, battle, event)
             else:
                 message = None
 
@@ -338,6 +341,164 @@ class GamePipeline:
             },
             "attack": attack,
             "teams": totals,
+            "winner_side": winner,
+            "status": session.status,
+        }
+
+    # ------------------------------------------------------------------
+    # Tank war mode (the characters are the gunners, viewers are the troops)
+    # ------------------------------------------------------------------
+
+    async def _handle_comment(
+        self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
+    ) -> dict:
+        """Viewers enlist by typing a keyword in chat ("P" or "B" by default).
+        Anything else is ordinary chatter and ignored."""
+        if battle.mode not in ("tank_war", "team_pvp"):
+            return {}
+
+        config = await settings_service.get(db, "tank_war")
+        team = tank_war_manager.team_for_comment(event.comment or "", config)
+        if team is None:
+            return {}
+
+        player, created = await avatar_service.get_or_create_player(
+            db,
+            session.id,
+            battle,
+            user_id=event.user.id,
+            username=event.user.username,
+            nickname=event.user.nickname,
+            avatar_url=event.user.avatar,
+            team=team,
+        )
+
+        switched = not created and player.team != team
+        player.team = team
+
+        if created or player.eliminated or player.power <= 0:
+            starting = (
+                tank_war_manager.soldier_hp(config)
+                if battle.mode == "tank_war"
+                else team_battle_manager.starting_power(
+                    await settings_service.get(db, "team_battle")
+                )
+            )
+            player.power = starting
+            player.peak_power = starting
+            player.eliminated = False
+
+        player.last_interaction = datetime.now(timezone.utc)
+        await db.flush()
+
+        return {
+            "type": "player_enlisted",
+            "session_id": session.id,
+            "player": self._player_payload(player, created),
+            "switched": switched,
+        }
+
+    async def _handle_gift_tank_war(
+        self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
+    ) -> dict:
+        gift = gift_cache.get(event.gift.id)
+        if gift is None or not gift.active:
+            logger.warning("unknown or inactive gift_key=%s ignored", event.gift.id)
+            return {}
+
+        quantity = event.gift.quantity
+        combo_count = combo_manager.register(session.id, event.user.id, gift.gift_key, quantity)
+        combo_tier = gift_cache.combo_tier_for(combo_count)
+        action = gift_rule_engine.resolve(gift, quantity, combo_count, combo_tier)
+        config = await settings_service.get(db, "tank_war")
+
+        # A viewer who already enlisted by comment keeps that side; anyone else
+        # is placed by the side the gift itself fights for.
+        existing = (
+            await db.execute(
+                select(Player).where(
+                    Player.session_id == session.id, Player.user_id == event.user.id
+                )
+            )
+        ).scalar_one_or_none()
+        team = existing.team if existing else action.attacker_team
+
+        player, created = await avatar_service.get_or_create_player(
+            db,
+            session.id,
+            battle,
+            user_id=event.user.id,
+            username=event.user.username,
+            nickname=event.user.nickname,
+            avatar_url=event.user.avatar,
+            team=team,
+        )
+        if created or player.power <= 0:
+            starting = tank_war_manager.soldier_hp(config)
+            player.power = starting
+            player.peak_power = starting
+            player.eliminated = False
+
+        damage = tank_war_manager.shot_damage(gift, quantity, config)
+        enemies = await tank_war_manager.enemy_soldiers(db, session.id, team)
+        shot = tank_war_manager.resolve_shot(team, enemies, damage, config)
+
+        player.gifts_total += quantity
+        player.combo_count = combo_count
+        player.damage_total += damage
+        player.kills += shot.kills
+        player.last_interaction = datetime.now(timezone.utc)
+
+        db.add(
+            BattleEvent(
+                session_id=session.id,
+                player_id=player.id,
+                gift_id=gift.id,
+                event_type="tank_shot",
+                quantity=quantity,
+                combo_count=combo_count,
+                xp_delta=-damage,
+                target_side=shot.target_side,
+                payload={"gift_key": gift.gift_key, "mode": "tank_war", "kills": shot.kills},
+            )
+        )
+
+        await db.flush()
+
+        players = (
+            (await db.execute(select(Player).where(Player.session_id == session.id))).scalars().all()
+        )
+        armies = tank_war_manager.army_totals(players)
+        winner = tank_war_manager.winner_from(armies)
+        if winner:
+            session.status = "finished"
+            session.winner_side = winner
+            session.finished_at = datetime.now(timezone.utc)
+
+        return {
+            "type": "tank_shot",
+            "session_id": session.id,
+            "player": self._player_payload(player, created),
+            "gift": {
+                "key": gift.gift_key,
+                "icon": gift.icon,
+                "action_type": gift.action_type,
+                "animation_key": gift.animation_key,
+                "sound_key": gift.sound_key,
+                "coins": gift.coins,
+            },
+            "quantity": quantity,
+            "combo": {
+                "count": combo_count,
+                "tier_label": combo_tier.label if combo_tier else None,
+                "tier_animation": combo_tier.animation_key if combo_tier else None,
+            },
+            "shooter_side": team,
+            "target_side": shot.target_side,
+            "damage": round(damage, 1),
+            "kills": shot.kills,
+            "hits": shot.hits,
+            "armies": armies,
             "winner_side": winner,
             "status": session.status,
         }

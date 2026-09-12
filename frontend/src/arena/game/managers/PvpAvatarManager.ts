@@ -19,15 +19,27 @@ export interface Fighter {
   diameter: number;
 }
 
-/** Sizes every fighter by its own power, the way the reference battles do:
- * a viewer who keeps feeding gifts visibly outgrows everyone else, and the
- * bar above the avatar drains as enemies chip that power away. */
+export interface PvpAvatarOptions {
+  /** Off keeps every avatar the same size: tank war fields uniform soldiers
+   * whose bar drains, while PvP grows its fighters with their power. */
+  scaleWithPower?: boolean;
+  showPowerLabel?: boolean;
+}
+
+/** Manages the circular avatars that fight in the arena: an HP bar that
+ * drains above each one, and (in PvP) a diameter that grows with the
+ * owner's power, the way the reference battles do. */
 export class PvpAvatarManager {
   private scene: Phaser.Scene;
   private fighters = new Map<string, Fighter>();
+  private options: Required<PvpAvatarOptions>;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, options: PvpAvatarOptions = {}) {
     this.scene = scene;
+    this.options = {
+      scaleWithPower: options.scaleWithPower ?? true,
+      showPowerLabel: options.showPowerLabel ?? true,
+    };
   }
 
   get(userId: string): Fighter | undefined {
@@ -45,6 +57,7 @@ export class PvpAvatarManager {
   /** Logarithmic so a 30x power lead reads as "much bigger" without a single
    * whale covering the whole arena. */
   private diameterFor(power: number): number {
+    if (!this.options.scaleWithPower) return MIN_DIAMETER;
     const ratio = Math.max(1, power / POWER_FOR_MIN);
     const diameter = MIN_DIAMETER + Math.log2(ratio) * 26;
     return Phaser.Math.Clamp(diameter, MIN_DIAMETER, MAX_DIAMETER);
@@ -55,7 +68,7 @@ export class PvpAvatarManager {
     if (existing) return existing;
 
     const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
-    const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, TEXTURE_SIZE);
+    const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, TEXTURE_SIZE, player.username);
 
     const power = player.power ?? POWER_FOR_MIN;
     const diameter = this.diameterFor(power);
@@ -89,7 +102,8 @@ export class PvpAvatarManager {
         strokeThickness: 4,
       })
       .setOrigin(0.5)
-      .setDepth(26);
+      .setDepth(26)
+      .setVisible(this.options.showPowerLabel);
 
     const fighter: Fighter = {
       sprite,
