@@ -113,6 +113,82 @@ moedas de cada presente em **Admin → Presentes**.
 > **Atualizando um banco que já existia**: nada a fazer — as migrations
 > cuidam disso automaticamente no startup (ver "Migrations" abaixo).
 
+## Personagens animados (folha de sprites)
+
+Um personagem pode ser um desenho parado ou uma **folha de sprites**: uma única
+imagem com várias poses lado a lado, que o jogo toca em sequência para o
+personagem se mexer. Vale para os três modos.
+
+### Como cadastrar
+
+1. Monte a imagem com as poses numa grade de **células do mesmo tamanho**.
+2. Em **Admin → Personagens**, suba essa imagem no campo *Imagem*.
+3. Preencha o bloco *Animação*:
+
+| Campo | O que é |
+|---|---|
+| **Colunas** | quantas poses por linha. **0 = imagem parada** (comportamento antigo) |
+| **Linhas** | quantas linhas a grade tem |
+| **Quadros** | quantas poses de verdade existem. `0` = a grade toda; use quando as últimas células ficaram vazias |
+| **Quadros por segundo** | velocidade da animação. 6–10 costuma ficar bom; acima de 15 fica agitado demais |
+
+Não é preciso medir pixel nenhum: o tamanho de cada pose é a imagem dividida
+pela grade. Personagens que já existem continuam parados, porque nascem com
+colunas = 0.
+
+Quando há animação, o jogo desliga o "respiro" falso (o sobe-e-desce e o soco
+no ar que existiam para dar vida a um desenho estático) — a folha já faz esse
+trabalho. Girar para mirar, o recuo do tiro e o tranco ao levar dano continuam
+valendo, porque são movimentos do personagem inteiro.
+
+### Montando a folha a partir de imagens soltas
+
+A IA entrega **uma pose por arquivo**. O script junta tudo e já diz o que
+digitar no painel:
+
+```bash
+pip install Pillow
+python scripts/make_spritesheet.py pose1.png pose2.png pose3.png pose4.png -o lula.png
+```
+
+Ele recorta o vazio em volta de cada pose, deixa todas do mesmo tamanho,
+alinha pelos pés (para o personagem não flutuar de um quadro para o outro) e
+imprime as colunas/linhas/quadros prontos para copiar. Use `--columns 4` para
+quebrar em várias linhas.
+
+### Especificações da imagem para gerar na IA
+
+Peça **uma pose por vez**, sempre com estas regras:
+
+- **PNG com fundo transparente**, personagem de corpo inteiro.
+- **Mesmo enquadramento em todas as poses**: mesma distância da câmera, mesmo
+  tamanho do personagem, pés na mesma altura. Esse é o erro mais comum — se o
+  tamanho variar entre as poses, a animação "pula".
+- **Mesma iluminação, mesmas cores, mesmo traço** em todas.
+- **Tamanho por pose**: 512×768 px é um bom padrão (o jogo redimensiona para
+  ~560 px de altura na Guerra de Tanques e ~900 px no modo clássico). Menos de
+  300 px de altura fica borrado na tela 1080×1920.
+- **Limite da folha inteira: 4096×4096 px.** Acima disso algumas placas de
+  vídeo recusam a textura e o personagem some. Com células de 512 px de
+  largura, isso dá até 8 colunas.
+- **4 a 8 poses** já dá uma animação convincente; 6 fps com 6 poses = 1 segundo
+  de ciclo.
+- O ciclo é em **loop**, então a última pose tem que combinar com a primeira.
+
+Modelo de prompt que funciona bem (troque só a parte da pose):
+
+> Caricatura de corpo inteiro do personagem X, estilo cartoon, fundo totalmente
+> transparente, personagem centralizado ocupando toda a altura da imagem, pés na
+> base do quadro, visto de frente, iluminação neutra e uniforme, sem sombra no
+> chão, 512x768. **Pose: braço direito levantado na altura do ombro, boca
+> aberta.**
+
+Depois repita trocando só a frase da pose: *braço abaixado*, *braço a meio
+caminho*, *boca fechada*, e assim por diante. Se a sua ferramenta tiver edição
+da mesma imagem (inpainting / "editar esta imagem"), **prefira isso a gerar do
+zero** — mudar só o braço na mesma arte mantém a consistência que o gerador
+não consegue repetir sozinho.
+
 ## Stack
 
 - **Backend**: Python 3.12 + FastAPI + SQLAlchemy (async) + PostgreSQL + Redis (reservado para filas/pub-sub multi-processo)

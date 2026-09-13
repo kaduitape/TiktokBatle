@@ -37,6 +37,16 @@ class Character(Base):
     hit_animation: Mapped[str] = mapped_column(String, default="hit")
     heal_animation: Mapped[str] = mapped_column(String, default="heal")
 
+    # Sprite sheet: one uploaded image holding the poses side by side. The grid
+    # is described in columns/rows rather than pixels so the admin never has to
+    # measure anything -- the frame size is the image size divided by the grid.
+    # sprite_columns = 0 means the upload is a plain, still image.
+    sprite_columns: Mapped[int] = mapped_column(Integer, default=0)
+    sprite_rows: Mapped[int] = mapped_column(Integer, default=1)
+    # 0 = every cell in the grid. Set it when the last cells are left blank.
+    sprite_frame_count: Mapped[int] = mapped_column(Integer, default=0)
+    sprite_fps: Mapped[int] = mapped_column(Integer, default=10)
+
     xp_max: Mapped[int] = mapped_column(Integer, default=100_000)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -14,6 +14,10 @@ interface Character {
   shadow: boolean;
   outline: boolean;
   glow: boolean;
+  sprite_columns: number;
+  sprite_rows: number;
+  sprite_frame_count: number;
+  sprite_fps: number;
   xp_max: number;
 }
 
@@ -31,6 +35,10 @@ const empty: Omit<Character, "id"> = {
   shadow: true,
   outline: false,
   glow: false,
+  sprite_columns: 0,
+  sprite_rows: 1,
+  sprite_frame_count: 0,
+  sprite_fps: 10,
   xp_max: 100000,
 };
 
@@ -100,6 +108,53 @@ export default function Characters() {
                 <span className="pill">Imagem selecionada</span>
               </div>
             )}
+
+            <label>Animação (folha de sprites)</label>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
+              Suba uma imagem só com as poses lado a lado, todas do mesmo tamanho, e
+              diga aqui como a grade está dividida. Deixe as colunas em <b>0</b> para
+              usar a imagem como desenho parado.
+            </p>
+            <div className="row">
+              <div style={{ flex: 1 }}>
+                <label>Colunas</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.sprite_columns}
+                  onChange={(e) => setForm({ ...form, sprite_columns: Number(e.target.value) })}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label>Linhas</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.sprite_rows}
+                  onChange={(e) => setForm({ ...form, sprite_rows: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+            <div className="row">
+              <div style={{ flex: 1 }}>
+                <label>Quadros (0 = grade toda)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.sprite_frame_count}
+                  onChange={(e) => setForm({ ...form, sprite_frame_count: Number(e.target.value) })}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label>Quadros por segundo</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.sprite_fps}
+                  onChange={(e) => setForm({ ...form, sprite_fps: Number(e.target.value) })}
+                />
+              </div>
+            </div>
 
             <label>Fundo</label>
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "background_url")} />
@@ -183,6 +238,7 @@ export default function Characters() {
               <th>Imagem</th>
               <th>Nome</th>
               <th>Cor</th>
+              <th>Animação</th>
               <th>XP máx</th>
               <th></th>
             </tr>
@@ -194,6 +250,11 @@ export default function Characters() {
                 <td>{c.name}</td>
                 <td>
                   <span className="pill" style={{ background: c.team_color }}>&nbsp;&nbsp;&nbsp;</span>
+                </td>
+                <td>
+                  {c.sprite_columns > 0
+                    ? `${c.sprite_columns}x${c.sprite_rows} @ ${c.sprite_fps}fps`
+                    : "parada"}
                 </td>
                 <td>{c.xp_max.toLocaleString("pt-BR")}</td>
                 <td className="row">

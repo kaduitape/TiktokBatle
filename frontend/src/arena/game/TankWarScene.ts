@@ -10,6 +10,7 @@ import type {
   TankShotMessage,
 } from "../../types/events";
 import { resolveAssetUrl } from "./avatarTexture";
+import { buildCharacterObject, isAnimated } from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { ComboManager } from "./managers/ComboManager";
 import { EffectsManager } from "./managers/EffectsManager";
@@ -233,7 +234,7 @@ export default class TankWarScene extends Phaser.Scene {
   }
 
   private buildGunnerSprite(key: string, x: number, y: number, meta: CharacterPayload): Phaser.GameObjects.Image {
-    const img = this.add.image(x, y, key).setDepth(10);
+    const img = buildCharacterObject(this, key, x, y, meta).setDepth(10);
     img.setScale((GUNNER_TARGET_HEIGHT * meta.scale) / img.height);
     if (meta.flip_h) img.setFlipX(true);
     if (meta.glow) {
@@ -251,6 +252,10 @@ export default class TankWarScene extends Phaser.Scene {
   private startIdle(gunner: Gunner) {
     const { sprite } = gunner;
     const baseScale = (sprite as any).scale ?? 1;
+
+    // A sprite sheet animates the arms and face for real, so the faked breath
+    // and fist pump would only fight it. Aiming, recoil and flinch still run.
+    if (isAnimated(gunner.meta)) return;
 
     this.tweens.add({
       targets: sprite,

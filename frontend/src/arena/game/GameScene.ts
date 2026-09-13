@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { API_BASE } from "../../api/client";
 import type { AttackMessage, ArenaMessage, CharacterPayload, PlayerJoinedMessage, StateSyncMessage } from "../../types/events";
+import { buildCharacterObject, isAnimated } from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { AvatarManager } from "./managers/AvatarManager";
 import { ComboManager } from "./managers/ComboManager";
@@ -193,7 +194,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private buildCharSprite(key: string, x: number, y: number, meta: CharacterPayload): Phaser.GameObjects.Image {
-    const img = this.add.image(x, y, key).setDepth(10);
+    const img = buildCharacterObject(this, key, x, y, meta).setDepth(10);
     const targetHeight = 900 * meta.scale;
     const scale = targetHeight / img.height;
     img.setScale(scale);
@@ -206,7 +207,10 @@ export default class GameScene extends Phaser.Scene {
         /* glow requires WebGL; ignore on canvas renderer */
       }
     }
-    this.tweens.add({ targets: img, y: y - 8, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    // A sheet already carries its own motion; the float would fight it.
+    if (!isAnimated(meta)) {
+      this.tweens.add({ targets: img, y: y - 8, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    }
     return img;
   }
 

@@ -11,6 +11,11 @@ export interface CharacterPayload {
   shadow: boolean;
   outline: boolean;
   glow: boolean;
+  /** Sprite sheet grid; 0 columns means the art is a single still image. */
+  sprite_columns: number;
+  sprite_rows: number;
+  sprite_frame_count: number;
+  sprite_fps: number;
   xp_max: number;
 }
 

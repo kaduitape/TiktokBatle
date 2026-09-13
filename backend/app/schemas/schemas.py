@@ -52,6 +52,10 @@ class CharacterIn(BaseModel):
     idle_animation: str = "idle"
     hit_animation: str = "hit"
     heal_animation: str = "heal"
+    sprite_columns: int = 0
+    sprite_rows: int = 1
+    sprite_frame_count: int = 0
+    sprite_fps: int = 10
     xp_max: int = 100_000
 
 
