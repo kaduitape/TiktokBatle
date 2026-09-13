@@ -51,6 +51,9 @@ jobs:
               done
             fi
 
+            echo "overlay escolhido: ${overlay}"
+            echo "compose: ${files}"
+
             docker compose --env-file .env $files up --build --detach --remove-orphans
             docker compose --env-file .env $files ps
 
@@ -58,6 +61,17 @@ jobs:
             if [ "$overlay" != "none" ]; then
               frontend="$(docker compose --env-file .env $files ps -q frontend)"
               enabled="$(docker inspect --format '{{ index .Config.Labels "traefik.enable" }}' "$frontend")"
+              echo "frontend=${frontend} traefik.enable=${enabled}"
+              if [ "$enabled" != "true" ]; then
+                # Compose keeps a container it considers unchanged, so a label
+                # that only exists in the overlay can survive a deploy missing.
+                # Recreate just this one service -- never the database.
+                echo "sem label: recriando o frontend"
+                docker compose --env-file .env $files up --detach --force-recreate frontend
+                frontend="$(docker compose --env-file .env $files ps -q frontend)"
+                enabled="$(docker inspect --format '{{ index .Config.Labels "traefik.enable" }}' "$frontend")"
+                echo "apos recriar: traefik.enable=${enabled}"
+              fi
               if [ "$enabled" != "true" ]; then
                 echo "frontend subiu sem os labels do Traefik -- o dominio vai responder 404"
                 exit 1
