@@ -38,11 +38,13 @@ jobs:
             # The overlay is what attaches the stack to the VPS's Traefik.
             # Deploying without it recreates the frontend with no Traefik
             # labels, and the domain starts answering 404 even though every
-            # container is healthy. Set COMPOSE_OVERLAY in .env to change it,
-            # or to "none" on a machine that publishes the port directly.
-            # Value must be unquoted, e.g. COMPOSE_OVERLAY=docker-compose.traefik.yml
+            # container is healthy. This deployment targets the Hostinger VPS,
+            # so an old COMPOSE_OVERLAY=none must not disable its public route.
             overlay="$(sed -n 's/^COMPOSE_OVERLAY=//p' .env | tail -n1)"
-            if [ -z "$overlay" ]; then overlay="docker-compose.hostinger.yml"; fi
+            if [ -z "$overlay" ] || [ "$overlay" = "none" ]; then
+              echo "COMPOSE_OVERLAY=${overlay:-ausente}; usando o overlay do Hostinger"
+              overlay="docker-compose.hostinger.yml"
+            fi
             files="-f docker-compose.yml"
             if [ "$overlay" != "none" ]; then
               for f in $overlay; do
