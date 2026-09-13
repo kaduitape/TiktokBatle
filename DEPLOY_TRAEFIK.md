@@ -59,6 +59,17 @@ docker compose -f docker-compose.yml -f docker-compose.hostinger.yml ps
 curl http://127.0.0.1:8080/api/health
 ```
 
+> **O deploy automático usa o mesmo overlay.** O workflow do GitHub Actions
+> passa `-f docker-compose.hostinger.yml` junto com o compose base e **falha**
+> se o container do frontend subir sem o label `traefik.enable` — sem isso, um
+> deploy recriava o frontend sem os labels e o domínio passava a responder 404
+> com todos os containers saudáveis. Para usar outro overlay (ou nenhum),
+> defina no `.env`, sem aspas:
+>
+> ```bash
+> COMPOSE_OVERLAY=docker-compose.traefik.yml   # ou: none
+> ```
+
 O último comando deve devolver `{"status":"ok"}`. Em seguida, abra
 `https://arena.navit.com.br` no navegador. O certificado é definido pelas
 labels de `docker-compose.hostinger.yml`; o Traefik da VPS redireciona HTTP

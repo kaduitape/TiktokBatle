@@ -35,5 +35,32 @@ jobs:
             git fetch --prune origin master
             git checkout --force master
             git reset --hard origin/master
-            docker compose --env-file .env up --build --detach --remove-orphans
-            docker compose ps
+            # The overlay is what attaches the stack to the VPS's Traefik.
+            # Deploying without it recreates the frontend with no Traefik
+            # labels, and the domain starts answering 404 even though every
+            # container is healthy. Set COMPOSE_OVERLAY in .env to change it,
+            # or to "none" on a machine that publishes the port directly.
+            # Value must be unquoted, e.g. COMPOSE_OVERLAY=docker-compose.traefik.yml
+            overlay="$(sed -n 's/^COMPOSE_OVERLAY=//p' .env | tail -n1)"
+            if [ -z "$overlay" ]; then overlay="docker-compose.hostinger.yml"; fi
+            files="-f docker-compose.yml"
+            if [ "$overlay" != "none" ]; then
+              for f in $overlay; do
+                test -f "$f"
+                files="$files -f $f"
+              done
+            fi
+
+            docker compose --env-file .env $files up --build --detach --remove-orphans
+            docker compose --env-file .env $files ps
+
+            # Fail the deploy here rather than letting the domain 404 quietly.
+            if [ "$overlay" != "none" ]; then
+              frontend="$(docker compose --env-file .env $files ps -q frontend)"
+              enabled="$(docker inspect --format '{{ index .Config.Labels "traefik.enable" }}' "$frontend")"
+              if [ "$enabled" != "true" ]; then
+                echo "frontend subiu sem os labels do Traefik -- o dominio vai responder 404"
+                exit 1
+              fi
+              echo "frontend rotulado para o Traefik: ok"
+            fi
