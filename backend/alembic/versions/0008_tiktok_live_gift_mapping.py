@@ -4,8 +4,8 @@ The game-facing ``gift_key`` remains unchanged for the simulator and admin.
 Real TikTok events are matched through the stable numeric ``tiktok_gift_id``
 instead. Incoming, unmapped gifts are recorded for the live setup wizard.
 
-Revision ID: 0007
-Revises: 0006
+Revision ID: 0008
+Revises: 0007
 Create Date: 2026-09-13
 """
 
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = "0007"
-down_revision: Union[str, None] = "0006"
+revision: str = "0008"
+down_revision: Union[str, None] = "0007"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
