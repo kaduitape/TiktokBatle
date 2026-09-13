@@ -62,11 +62,13 @@ jobs:
             # Fail the deploy here rather than letting the domain 404 quietly.
             expected_domain="arena.navit.com.br"
             expected_rule='Host(`arena.navit.com.br`)'
+            expected_entrypoint="websecure"
             frontend="$(docker compose --env-file .env $files ps -q frontend)"
             enabled="$(docker inspect --format '{{ index .Config.Labels "traefik.enable" }}' "$frontend")"
             rule="$(docker inspect --format '{{ index .Config.Labels "traefik.http.routers.battle-arena.rule" }}' "$frontend")"
-            echo "frontend=${frontend} traefik.enable=${enabled} router.rule=${rule}"
-            if [ "$enabled" != "true" ] || [ "$rule" != "$expected_rule" ]; then
+            entrypoint="$(docker inspect --format '{{ index .Config.Labels "traefik.http.routers.battle-arena.entrypoints" }}' "$frontend")"
+            echo "frontend=${frontend} traefik.enable=${enabled} router.rule=${rule} router.entrypoints=${entrypoint}"
+            if [ "$enabled" != "true" ] || [ "$rule" != "$expected_rule" ] || [ "$entrypoint" != "$expected_entrypoint" ]; then
               echo "frontend subiu sem o roteamento esperado do Traefik -- o dominio vai responder 404"
               exit 1
             fi

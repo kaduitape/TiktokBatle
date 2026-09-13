@@ -12,7 +12,10 @@ services:
       # so a stale value in the VPS .env cannot register a router for a
       # different hostname while arena.navit.com.br responds with Traefik 404.
       - "traefik.http.routers.battle-arena.rule=Host(`arena.navit.com.br`)"
-      - "traefik.http.routers.battle-arena.entrypoints=${TRAEFIK_HTTPS_ENTRYPOINT:-websecure}"
+      # The VPS Traefik exposes HTTPS through `websecure`. Do not read this
+      # from .env: an old value such as `web` registers the router only on
+      # port 80 and makes the public HTTPS domain return Traefik's 404.
+      - "traefik.http.routers.battle-arena.entrypoints=websecure"
       - "traefik.http.routers.battle-arena.tls=true"
       - "traefik.http.routers.battle-arena.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
       - "traefik.http.routers.battle-arena.service=battle-arena"
