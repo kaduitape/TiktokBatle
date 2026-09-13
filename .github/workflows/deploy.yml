@@ -40,7 +40,7 @@ jobs:
             # do not let an old COMPOSE_OVERLAY setting choose a different
             # compose definition or silently skip public routing.
             test -f docker-compose.hostinger.yml
-            files="-f docker-compose.yml -f docker-compose.hostinger.yml"
+            files="-f docker-compose.yml"
             # Passing -f at all turns off the override file Compose would
             # otherwise load by itself. That file is not in Git -- it is where
             # per-server configuration lives -- so dropping it silently would
@@ -49,6 +49,11 @@ jobs:
               files="$files -f docker-compose.override.yml"
               echo "incluindo docker-compose.override.yml"
             fi
+            # Keep server-specific settings, but append the public-routing
+            # overlay last. Compose merges later label values over earlier
+            # ones; otherwise an old server override can put the Arena back
+            # on the wrong Traefik router or entrypoint.
+            files="$files -f docker-compose.hostinger.yml"
 
             echo "compose de producao: ${files}"
 
