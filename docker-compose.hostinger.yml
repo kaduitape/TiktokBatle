@@ -1,0 +1,15 @@
+# Overlay for Hostinger Docker Manager's built-in Traefik installation.
+#
+# On this VPS Traefik uses `network_mode: host`, so it must NOT be attached
+# to an external Docker network. The Docker provider can still reach the
+# frontend through the host bridge and discovers these labels directly.
+services:
+  frontend:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.battle-arena.loadbalancer.server.port=80"
+      - "traefik.http.routers.battle-arena.rule=Host(`${BATTLE_DOMAIN:-arena.navit.com.br}`)"
+      - "traefik.http.routers.battle-arena.entrypoints=${TRAEFIK_HTTPS_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.battle-arena.tls=true"
+      - "traefik.http.routers.battle-arena.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
+      - "traefik.http.routers.battle-arena.service=battle-arena"

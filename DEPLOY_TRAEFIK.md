@@ -2,20 +2,19 @@
 
 Este guia publica a aplicação em `https://arena.navit.com.br` através do
 Traefik que já existe na VPS. A aplicação não abre PostgreSQL, Redis ou o
-backend para a internet; somente o container do frontend entra na rede do
-Traefik. O Nginx interno encaminha `/api`, `/uploads` e `/ws` ao backend.
+backend para a internet. O Nginx interno encaminha `/api`, `/uploads` e `/ws`
+ao backend.
 
 ## 1. Confirme Traefik e Cloudflare
 
-Na VPS, descubra o nome da rede Docker compartilhada pelo Traefik:
+No Hostinger Docker Manager desta VPS, o Traefik usa `network_mode: host` e o
+resolvedor `letsencrypt` com desafio HTTP. Portanto, use o overlay
+`docker-compose.hostinger.yml`; não conecte o Traefik a uma rede externa, pois
+o Docker Compose rejeita `network_mode` e `networks` no mesmo serviço.
 
-```bash
-docker network ls
-docker network inspect traefik
-```
-
-Este projeto usa `traefik` como padrão. Se a rede tiver outro nome, coloque o
-valor correto em `TRAEFIK_NETWORK` no `.env`.
+Para uma instalação Traefik convencional, conectada a uma rede Docker
+compartilhada, mantenha o uso de `docker-compose.traefik.yml` e configure o
+nome da rede e do resolvedor conforme o seu proxy.
 
 No Cloudflare, o registro `A` de `arena.navit.com.br` deve apontar para o IP
 público da VPS. Deixe o SSL/TLS em **Full (strict)** quando o Traefik emitir
@@ -24,8 +23,8 @@ infinito entre Cloudflare e Traefik. Confirme também que WebSockets estão
 liberados na zona.
 
 O valor de `TRAEFIK_CERT_RESOLVER` precisa ser o nome exato do resolvedor já
-configurado no Traefik. Neste exemplo ele é `cloudflare`; troque-o se o seu
-stack usar outro nome.
+configurado no Traefik. Nesta VPS ele é `letsencrypt`; troque-o somente se o
+seu proxy usar outro nome.
 
 ## 2. Configure o ambiente
 
@@ -44,10 +43,9 @@ BATTLE_CORS_ORIGINS=["https://arena.navit.com.br"]
 HTTP_BIND_ADDRESS=127.0.0.1
 HTTP_PORT=8080
 BATTLE_DOMAIN=arena.navit.com.br
-TRAEFIK_NETWORK=traefik
 TRAEFIK_HTTP_ENTRYPOINT=web
 TRAEFIK_HTTPS_ENTRYPOINT=websecure
-TRAEFIK_CERT_RESOLVER=cloudflare
+TRAEFIK_CERT_RESOLVER=letsencrypt
 ```
 
 `HTTP_BIND_ADDRESS=127.0.0.1` é intencional: a porta 8080 serve apenas para
@@ -56,19 +54,20 @@ diagnóstico local na VPS. O acesso público passa pelo Traefik em 443.
 ## 3. Suba a versão de produção
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml ps
+docker compose -f docker-compose.yml -f docker-compose.hostinger.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.hostinger.yml ps
 curl http://127.0.0.1:8080/api/health
 ```
 
 O último comando deve devolver `{"status":"ok"}`. Em seguida, abra
-`https://arena.navit.com.br` no navegador. O certificado e o redirecionamento
-HTTP → HTTPS são definidos pelas labels de `docker-compose.traefik.yml`.
+`https://arena.navit.com.br` no navegador. O certificado é definido pelas
+labels de `docker-compose.hostinger.yml`; o Traefik da VPS redireciona HTTP
+para HTTPS globalmente.
 
 Para acompanhar a conexão do TikTok durante o teste:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml logs -f backend
+docker compose -f docker-compose.yml -f docker-compose.hostinger.yml logs -f backend
 ```
 
 Não rode `docker compose down -v`: a opção `-v` apaga os volumes do banco e
@@ -97,7 +96,7 @@ estado e a mensagem de erro ficam visíveis no assistente.
 
 | Sintoma | Verificação |
 | --- | --- |
-| Domínio retorna 404/502 | Confirme `TRAEFIK_NETWORK`, o nome do cert resolver e as logs do Traefik. O frontend precisa aparecer na mesma rede externa do proxy. |
+| Domínio retorna 404/502 | Confirme as labels do frontend, o resolvedor `letsencrypt` e os logs do Traefik. Neste Hostinger o proxy usa rede `host`; não adicione uma rede externa ao serviço Traefik. |
 | Redirecionamento infinito | No Cloudflare, altere SSL/TLS para **Full (strict)**; não use Flexible. |
 | Arena abre, mas para ao vivo | Confira se a conexão está verde no assistente e se Cloudflare/Traefik permitem WebSocket. |
 | Presente não faz nada | Envie um teste, abra o passo 4 e associe o ID TikTok capturado a uma regra ativa. |
