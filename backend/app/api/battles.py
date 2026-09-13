@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.models.models import Battle, BattleSession, Character
 from app.schemas.schemas import ActiveBattleOut, BattleIn, BattleOut, SessionOut
 from app.services.battle_manager import battle_manager
+from app.services.state_sync import build_state_sync
 from app.ws.connection_manager import connection_manager
 
 router = APIRouter(prefix="/api/battles", tags=["battles"])
@@ -172,6 +173,14 @@ async def restart_battle(battle_id: str, db: AsyncSession = Depends(get_db), _: 
             "xp_max": {"a": side_a.xp_max, "b": side_b.xp_max},
         },
     )
+
+    # Followed by the whole picture, so a restart also republishes the
+    # characters. Swapping a character's artwork in the panel and hitting
+    # "reiniciar" then updates an OBS source that is already open, instead of
+    # needing it closed and reopened.
+    state = await build_state_sync(session.id)
+    if state:
+        await connection_manager.broadcast(session.id, state)
     return session
 
 

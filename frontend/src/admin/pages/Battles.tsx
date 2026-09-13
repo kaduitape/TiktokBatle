@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../../api/client";
+import { api, assetUrl } from "../../api/client";
 
 interface Character {
   id: string;
@@ -128,7 +128,7 @@ export default function Battles() {
                 <option key={c.id} value={c.id} disabled={c.id === form.side_b_character_id}>{c.name}</option>
               ))}
             </select>
-            {selectedA?.image_url && <img src={selectedA.image_url} alt={`Imagem de ${selectedA.name}`} style={{ width: 72, height: 72, objectFit: "contain", marginTop: 8 }} />}
+            {selectedA?.image_url && <img src={assetUrl(selectedA.image_url)} alt={`Imagem de ${selectedA.name}`} style={{ width: 72, height: 72, objectFit: "contain", marginTop: 8 }} />}
 
             <label>Máximo de bolinhas</label>
             <select value={form.max_players} onChange={(e) => setForm({ ...form, max_players: Number(e.target.value) })}>
@@ -152,7 +152,7 @@ export default function Battles() {
                 <option key={c.id} value={c.id} disabled={c.id === form.side_a_character_id}>{c.name}</option>
               ))}
             </select>
-            {selectedB?.image_url && <img src={selectedB.image_url} alt={`Imagem de ${selectedB.name}`} style={{ width: 72, height: 72, objectFit: "contain", marginTop: 8 }} />}
+            {selectedB?.image_url && <img src={assetUrl(selectedB.image_url)} alt={`Imagem de ${selectedB.name}`} style={{ width: 72, height: 72, objectFit: "contain", marginTop: 8 }} />}
 
             <label>
               <input type="checkbox" checked={form.one_ball_per_user} onChange={(e) => setForm({ ...form, one_ball_per_user: e.target.checked })} /> Uma bolinha por usuário

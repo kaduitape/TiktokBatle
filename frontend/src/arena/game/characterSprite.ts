@@ -11,6 +11,15 @@ export function isAnimated(meta: CharacterPayload): boolean {
   return (meta.sprite_columns ?? 0) > 0;
 }
 
+/** Texture keys fold in the image's own URL, not just the character id.
+ * Keying by id alone meant Phaser kept serving the art it cached the first
+ * time: changing a character's drawing in the panel changed nothing on an
+ * arena that was already open, which is exactly what an OBS source is. */
+export function textureKeyFor(meta: CharacterPayload, url: string | null | undefined, suffix = ""): string {
+  const stamp = (url || "none").replace(/[^a-zA-Z0-9]/g, "_").slice(-48);
+  return `char_${meta.id}_${stamp}${suffix}`;
+}
+
 /** Reaction art: stills swapped in for a moment when the character does
  * something. `hit` plays when it takes damage, `fire` when it shoots. */
 export type ActionKind = "hit" | "fire";
@@ -19,7 +28,7 @@ const actionUrl = (meta: CharacterPayload, kind: ActionKind): string | null =>
   (kind === "hit" ? meta.hit_image_url : meta.fire_image_url) ?? null;
 
 export const actionTextureKey = (meta: CharacterPayload, kind: ActionKind): string =>
-  `char_${meta.id}__${kind}`;
+  textureKeyFor(meta, actionUrl(meta, kind), `__${kind}`);
 
 /** Loads whichever reaction stills the character has. Fire-and-forget: if one
  * has not arrived by the time it is needed, the swap is simply skipped. */
@@ -163,4 +172,36 @@ export function buildCharacterObject(
   const sprite = scene.add.sprite(x, y, `${imageKey}__sheet`, 0);
   sprite.play(animKey);
   return sprite;
+}
+
+/** Draws (or replaces) the arena backdrop. Keyed by URL and holding on to the
+ * image it made, so a republished state swaps the backdrop instead of stacking
+ * a second one behind the first. */
+export function setBackground(
+  scene: Phaser.Scene,
+  url: string | null | undefined,
+  width: number,
+  height: number,
+  current: Phaser.GameObjects.Image | null
+): Phaser.GameObjects.Image | null {
+  if (!url) {
+    current?.destroy();
+    return null;
+  }
+  const key = `bg_${url.replace(/[^a-zA-Z0-9]/g, "_").slice(-48)}`;
+  if (current?.texture?.key === key) return current;
+  current?.destroy();
+
+  const place = () =>
+    scene.add.image(width / 2, height / 2, key).setDisplaySize(width, height).setDepth(-9);
+
+  if (scene.textures.exists(key)) return place();
+
+  // Not loaded yet: the caller keeps null until the file arrives, and the
+  // image inserts itself then.
+  scene.load.setCORS("anonymous");
+  scene.load.image(key, url);
+  scene.load.once(`filecomplete-image-${key}`, () => place());
+  scene.load.start();
+  return null;
 }

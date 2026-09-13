@@ -11,6 +11,15 @@ export const API_BASE = configuredApiUrl === ""
 
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
 
+/** Uploads are served by the API, not by whatever is hosting the panel. A bare
+ * "/uploads/x.png" in an <img> would resolve against the panel's own origin,
+ * which only happens to work when a proxy puts both behind one address. */
+export function assetUrl(path: string | null | undefined): string | undefined {
+  if (!path) return undefined;
+  if (/^(https?:)?\/\//.test(path) || path.startsWith("data:")) return path;
+  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
 function authHeaders(): Record<string, string> {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};

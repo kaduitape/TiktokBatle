@@ -1,7 +1,15 @@
 import Phaser from "phaser";
 import { API_BASE } from "../../api/client";
 import type { AttackMessage, ArenaMessage, CharacterPayload, PlayerJoinedMessage, StateSyncMessage } from "../../types/events";
-import { buildCharacterObject, flashAction, isAnimated, preloadActionArt, rememberIdlePose } from "./characterSprite";
+import {
+  buildCharacterObject,
+  flashAction,
+  isAnimated,
+  preloadActionArt,
+  rememberIdlePose,
+  setBackground,
+  textureKeyFor,
+} from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { AvatarManager } from "./managers/AvatarManager";
 import { ComboManager } from "./managers/ComboManager";
@@ -157,18 +165,35 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
+  /** Everything drawn for one side, so a later state_sync can clear it away
+   * instead of stacking a second character on top of the first. */
+  private background: Phaser.GameObjects.Image | null = null;
+  private charParts: Partial<Record<"A" | "B", Phaser.GameObjects.GameObject[]>> = {};
+
+  private clearCharacter(side: "A" | "B") {
+    (this.charParts[side] || []).forEach((obj) => {
+      this.tweens.killTweensOf(obj);
+      obj.destroy();
+    });
+    this.charParts[side] = [];
+  }
+
   private renderCharacter(meta: CharacterPayload, side: "A" | "B"): Phaser.GameObjects.Image | Phaser.GameObjects.Text {
     const { x, y } = this.characterPosition(meta, side);
     const url = resolveUrl(meta.image_url);
     preloadActionArt(this, meta, resolveUrl);
+    this.clearCharacter(side);
+    const parts = this.charParts[side]!;
 
     if (meta.shadow) {
-      this.add.ellipse(x, y + 260 * meta.scale, 260 * meta.scale, 50 * meta.scale, 0x000000, 0.35).setDepth(9);
+      parts.push(
+        this.add.ellipse(x, y + 260 * meta.scale, 260 * meta.scale, 50 * meta.scale, 0x000000, 0.35).setDepth(9)
+      );
     }
 
     let obj: Phaser.GameObjects.Image | Phaser.GameObjects.Text;
     if (url) {
-      const key = `char_${meta.id}`;
+      const key = textureKeyFor(meta, meta.image_url);
       if (this.textures.exists(key)) {
         obj = this.buildCharSprite(key, x, y, meta);
       } else {
@@ -176,10 +201,13 @@ export default class GameScene extends Phaser.Scene {
         this.load.image(key, url);
         obj = this.add.text(x, y, "…", { fontSize: "40px" }).setOrigin(0.5).setDepth(10);
         this.load.once(`filecomplete-image-${key}`, () => {
+          // The placeholder may already be gone if a new sync landed first.
+          if (!obj.active) return;
           obj.destroy();
           const sprite = this.buildCharSprite(key, x, y, meta);
-          if (meta.id === this.sideAMeta?.id) this.charSpriteA = sprite;
-          if (meta.id === this.sideBMeta?.id) this.charSpriteB = sprite;
+          parts.push(sprite);
+          if (side === "A") this.charSpriteA = sprite;
+          else this.charSpriteB = sprite;
         });
         this.load.start();
       }
@@ -191,6 +219,7 @@ export default class GameScene extends Phaser.Scene {
       if (meta.flip_h) obj.setFlipX(true);
     }
 
+    parts.push(obj);
     return obj;
   }
 
@@ -218,17 +247,13 @@ export default class GameScene extends Phaser.Scene {
     this.sideAMeta = msg.side_a;
     this.sideBMeta = msg.side_b;
 
-    if (msg.battle.background_url) {
-      const bgUrl = resolveUrl(msg.battle.background_url);
-      if (bgUrl) {
-        this.load.setCORS("anonymous");
-        this.load.image("battle_bg", bgUrl);
-        this.load.once("filecomplete-image-battle_bg", () => {
-          this.add.image(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "battle_bg").setDisplaySize(ARENA_WIDTH, ARENA_HEIGHT).setDepth(-9);
-        });
-        this.load.start();
-      }
-    }
+    this.background = setBackground(
+      this,
+      resolveUrl(msg.battle.background_url),
+      ARENA_WIDTH,
+      ARENA_HEIGHT,
+      this.background
+    );
 
     this.charSpriteA = this.renderCharacter(msg.side_a, "A");
     this.charSpriteB = this.renderCharacter(msg.side_b, "B");

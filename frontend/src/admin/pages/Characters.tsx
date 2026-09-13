@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../../api/client";
+import { api, assetUrl } from "../../api/client";
 
 interface Character {
   id: string;
@@ -108,7 +108,7 @@ export default function Characters() {
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "image_url")} />
             {form.image_url && (
               <div className="row" style={{ marginTop: 6 }}>
-                <img src={form.image_url} alt="Prévia do personagem" style={{ width: 54, height: 54, objectFit: "contain" }} />
+                <img src={assetUrl(form.image_url)} alt="Prévia do personagem" style={{ width: 54, height: 54, objectFit: "contain" }} />
                 <span className="pill">Imagem selecionada</span>
               </div>
             )}
@@ -168,7 +168,7 @@ export default function Characters() {
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "hit_image_url")} />
             {form.hit_image_url && (
               <div className="row" style={{ marginTop: 6 }}>
-                <img src={form.hit_image_url} alt="Prévia de dano" style={{ width: 54, height: 54, objectFit: "contain" }} />
+                <img src={assetUrl(form.hit_image_url)} alt="Prévia de dano" style={{ width: 54, height: 54, objectFit: "contain" }} />
                 <button className="secondary" onClick={() => setForm({ ...form, hit_image_url: null })}>Remover</button>
               </div>
             )}
@@ -180,7 +180,7 @@ export default function Characters() {
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "fire_image_url")} />
             {form.fire_image_url && (
               <div className="row" style={{ marginTop: 6 }}>
-                <img src={form.fire_image_url} alt="Prévia de disparo" style={{ width: 54, height: 54, objectFit: "contain" }} />
+                <img src={assetUrl(form.fire_image_url)} alt="Prévia de disparo" style={{ width: 54, height: 54, objectFit: "contain" }} />
                 <button className="secondary" onClick={() => setForm({ ...form, fire_image_url: null })}>Remover</button>
               </div>
             )}
@@ -275,7 +275,7 @@ export default function Characters() {
           <tbody>
             {list.map((c) => (
               <tr key={c.id}>
-                <td>{c.image_url ? <img src={c.image_url} alt="" style={{ width: 42, height: 42, objectFit: "contain" }} /> : "—"}</td>
+                <td>{c.image_url ? <img src={assetUrl(c.image_url)} alt="" style={{ width: 42, height: 42, objectFit: "contain" }} /> : "—"}</td>
                 <td>{c.name}</td>
                 <td>
                   <span className="pill" style={{ background: c.team_color }}>&nbsp;&nbsp;&nbsp;</span>

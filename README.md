@@ -141,6 +141,18 @@ no ar que existiam para dar vida a um desenho estático) — a folha já faz ess
 trabalho. Girar para mirar, o recuo do tiro e o tranco ao levar dano continuam
 valendo, porque são movimentos do personagem inteiro.
 
+### Trocando a arte com a live no ar
+
+A Arena é uma fonte de navegador do OBS que fica aberta o dia inteiro. Depois de
+trocar a imagem de um personagem (ou o fundo da batalha) em **Personagens**,
+clique em **reiniciar** na batalha: o servidor reenvia o estado completo e a
+Arena aberta redesenha os personagens com a arte nova — **sem precisar fechar e
+reabrir a fonte no OBS**.
+
+O painel mostra a prévia de cada imagem ao lado do campo e na lista de
+personagens, então dá para conferir qual desenho ficou em qual lado antes de
+montar a batalha.
+
 ### Imagens de reação (dano e disparo)
 
 Além da animação em loop, um personagem pode ter **dois desenhos avulsos** que

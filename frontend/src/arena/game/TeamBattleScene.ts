@@ -9,6 +9,7 @@ import type {
   TeamTotals,
 } from "../../types/events";
 import { resolveAssetUrl } from "./avatarTexture";
+import { setBackground } from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { ComboManager } from "./managers/ComboManager";
 import { EffectsManager } from "./managers/EffectsManager";
@@ -29,6 +30,7 @@ const MAX_ANIMATED_ATTACKS_PER_TICK = 12;
  * when its power runs out. Reuses the shared effect/projectile/audio managers
  * so both modes look and sound like the same game. */
 export default class TeamBattleScene extends Phaser.Scene {
+  private background: Phaser.GameObjects.Image | null = null;
   private sessionId!: string;
   private socket!: EventSocket;
 
@@ -176,18 +178,13 @@ export default class TeamBattleScene extends Phaser.Scene {
       );
     });
 
-    const bgUrl = resolveAssetUrl(msg.battle.background_url);
-    if (bgUrl && !this.textures.exists("pvp_bg")) {
-      this.load.setCORS("anonymous");
-      this.load.image("pvp_bg", bgUrl);
-      this.load.once("filecomplete-image-pvp_bg", () => {
-        this.add
-          .image(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "pvp_bg")
-          .setDisplaySize(ARENA_WIDTH, ARENA_HEIGHT)
-          .setDepth(-9);
-      });
-      this.load.start();
-    }
+    this.background = setBackground(
+      this,
+      resolveAssetUrl(msg.battle.background_url),
+      ARENA_WIDTH,
+      ARENA_HEIGHT,
+      this.background
+    );
 
     if (!this.ranking) this.ranking = new RankingManager(this, msg.session_id);
 

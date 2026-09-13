@@ -10,7 +10,15 @@ import type {
   TankShotMessage,
 } from "../../types/events";
 import { resolveAssetUrl } from "./avatarTexture";
-import { buildCharacterObject, flashAction, isAnimated, preloadActionArt, rememberIdlePose } from "./characterSprite";
+import {
+  buildCharacterObject,
+  flashAction,
+  isAnimated,
+  preloadActionArt,
+  rememberIdlePose,
+  setBackground,
+  textureKeyFor,
+} from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { ComboManager } from "./managers/ComboManager";
 import { EffectsManager } from "./managers/EffectsManager";
@@ -56,7 +64,13 @@ export default class TankWarScene extends Phaser.Scene {
   private bossBars!: XPManager;
   private ranking: RankingManager | null = null;
 
+  private background: Phaser.GameObjects.Image | null = null;
   private gunners: Partial<Record<"A" | "B", Gunner>> = {};
+  /** Everything drawn for each boss, so new artwork replaces it instead of
+   * being stacked behind the old drawing. */
+  private gunnerParts: Partial<Record<"A" | "B", Phaser.GameObjects.GameObject[]>> = {};
+  /** What each boss is currently drawn from, to skip a pointless rebuild. */
+  private gunnerArt: Partial<Record<"A" | "B", string>> = {};
   private teamColors: Record<"A" | "B", string> = { A: "#e01b24", B: "#2a7d2e" };
   private teamNames: Record<"A" | "B", string> = { A: "TIME A", B: "TIME B" };
   private armyLabels: Partial<Record<"A" | "B", Phaser.GameObjects.Text>> = {};
@@ -162,21 +176,24 @@ export default class TankWarScene extends Phaser.Scene {
     );
     this.bossBars.update(msg.xp.a, msg.xp.b);
 
-    const bgUrl = resolveAssetUrl(msg.battle.background_url);
-    if (bgUrl && !this.textures.exists("tank_bg")) {
-      this.load.setCORS("anonymous");
-      this.load.image("tank_bg", bgUrl);
-      this.load.once("filecomplete-image-tank_bg", () => {
-        this.add
-          .image(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "tank_bg")
-          .setDisplaySize(ARENA_WIDTH, ARENA_HEIGHT)
-          .setDepth(-9);
-      });
-      this.load.start();
-    }
+    this.background = setBackground(
+      this,
+      resolveAssetUrl(msg.battle.background_url),
+      ARENA_WIDTH,
+      ARENA_HEIGHT,
+      this.background
+    );
 
-    if (!this.gunners.A) this.spawnGunner("A", msg.side_a);
-    if (!this.gunners.B) this.spawnGunner("B", msg.side_b);
+    // A restart republishes the whole state, which is how artwork swapped in
+    // the panel reaches an arena that is already open.
+    (["A", "B"] as const).forEach((side) => {
+      const meta = side === "A" ? msg.side_a : msg.side_b;
+      const signature = [meta.image_url, meta.sprite_columns, meta.sprite_rows, meta.sprite_frame_count, meta.sprite_fps, meta.scale, meta.pos_x, meta.pos_y, meta.flip_h].join("|");
+      if (this.gunners[side] && this.gunnerArt[side] === signature) return;
+      this.clearGunner(side);
+      this.gunnerArt[side] = signature;
+      this.spawnGunner(side, meta);
+    });
 
     if (!this.ranking) this.ranking = new RankingManager(this, msg.session_id);
 
@@ -190,6 +207,15 @@ export default class TankWarScene extends Phaser.Scene {
     });
   }
 
+  private clearGunner(side: "A" | "B") {
+    (this.gunnerParts[side] || []).forEach((obj) => {
+      this.tweens.killTweensOf(obj);
+      obj.destroy();
+    });
+    this.gunnerParts[side] = [];
+    delete this.gunners[side];
+  }
+
   private spawnGunner(side: "A" | "B", meta: CharacterPayload) {
     const x = meta.pos_x * ARENA_WIDTH;
     const y = meta.pos_y * ARENA_HEIGHT;
@@ -197,20 +223,24 @@ export default class TankWarScene extends Phaser.Scene {
     const facing: 1 | -1 = meta.flip_h ? -1 : 1;
     const url = resolveAssetUrl(meta.image_url);
 
+    const parts = (this.gunnerParts[side] = this.gunnerParts[side] || []);
     if (meta.shadow) {
-      this.add
-        .ellipse(x, y + GUNNER_TARGET_HEIGHT * meta.scale * 0.46, 300 * meta.scale, 46 * meta.scale, 0x000000, 0.35)
-        .setDepth(9);
+      parts.push(
+        this.add
+          .ellipse(x, y + GUNNER_TARGET_HEIGHT * meta.scale * 0.46, 300 * meta.scale, 46 * meta.scale, 0x000000, 0.35)
+          .setDepth(9)
+      );
     }
 
     const register = (sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Text) => {
       const gunner: Gunner = { sprite, meta, side, baseX: x, baseY: y, facing };
       this.gunners[side] = gunner;
+      parts.push(sprite);
       this.startIdle(gunner);
     };
 
     if (url) {
-      const key = `gunner_${meta.id}`;
+      const key = textureKeyFor(meta, meta.image_url);
       if (this.textures.exists(key)) {
         register(this.buildGunnerSprite(key, x, y, meta));
       } else {
@@ -219,6 +249,8 @@ export default class TankWarScene extends Phaser.Scene {
         this.load.setCORS("anonymous");
         this.load.image(key, url);
         this.load.once(`filecomplete-image-${key}`, () => {
+          // A newer state_sync may have torn this boss down already.
+          if (!placeholder.active) return;
           placeholder.destroy();
           register(this.buildGunnerSprite(key, x, y, meta));
         });
