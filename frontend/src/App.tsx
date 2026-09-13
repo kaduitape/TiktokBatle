@@ -10,6 +10,7 @@ import Login from "./admin/pages/Login";
 import Music from "./admin/pages/Music";
 import Ranking from "./admin/pages/Ranking";
 import Simulator from "./admin/pages/Simulator";
+import SpriteStudio from "./admin/pages/SpriteStudio";
 import ArenaPage from "./arena/ArenaPage";
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="gifts" element={<Gifts />} />
           <Route path="editor" element={<Editor />} />
           <Route path="music" element={<Music />} />
+          <Route path="sprites" element={<SpriteStudio />} />
           <Route path="simulator" element={<Simulator />} />
           <Route path="ranking" element={<Ranking />} />
         </Route>

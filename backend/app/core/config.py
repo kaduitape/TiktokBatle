@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # explicitly for multi-instance or persistent-session deployments.
     secret_key: str = secrets.token_hex(32)
 
+    # Image generation for the sprite studio (Admin -> Gerar sprites). The key
+    # lives only in the environment: it is never written to the database and
+    # never sent back to the browser. Leave it unset and the studio simply
+    # reports itself as not configured -- everything else keeps working.
+    image_api_key: str = ""
+    image_api_base: str = "https://api.openai.com/v1"
+    image_model: str = "gpt-image-1"
+    # Generating a handful of poses takes a while; each call gets this long.
+    image_timeout_seconds: float = 180.0
+
     @property
     def migration_database_url(self) -> str:
         """Alembic runs synchronously, so the async driver is stripped off

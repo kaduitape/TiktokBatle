@@ -141,6 +141,33 @@ no ar que existiam para dar vida a um desenho estático) — a folha já faz ess
 trabalho. Girar para mirar, o recuo do tiro e o tranco ao levar dano continuam
 valendo, porque são movimentos do personagem inteiro.
 
+### Gerando as poses pelo próprio painel
+
+Com uma chave de imagem configurada, **Admin → Gerar sprites** faz tudo sem
+sair do navegador: você descreve o personagem uma vez, lista as poses, e o
+painel devolve a folha montada e já aplica no personagem escolhido.
+
+O truque que mantém o personagem igual entre os quadros: **só a primeira pose é
+gerada do zero**; todas as outras são *edições daquela mesma imagem*, com o
+prompt dizendo apenas o que muda. É por isso que a página pede uma descrição
+única do personagem e depois só a descrição de cada pose.
+
+Para ligar, coloque a chave no `.env` do servidor e reinicie o backend:
+
+```bash
+BATTLE_IMAGE_API_KEY=sk-...        # chave da OpenAI (platform.openai.com)
+BATTLE_IMAGE_MODEL=gpt-image-1     # opcional, esse é o padrão
+```
+
+A chave existe **só como variável de ambiente**: não é gravada no banco, não
+volta para o navegador em nenhuma resposta, e o `.env` é ignorado pelo Git.
+Sem chave, a página continua abrindo e explica o que fazer — o resto do
+sistema não depende dela em nada.
+
+Cada pose é uma chamada à API e é cobrada à parte, então 4 poses = 4 imagens
+na sua fatura. O limite por geração é de 8 poses, justamente para um clique
+distraído não virar uma conta alta.
+
 ### Montando a folha a partir de imagens soltas
 
 A IA entrega **uma pose por arquivo**. O script junta tudo e já diz o que
@@ -156,9 +183,10 @@ alinha pelos pés (para o personagem não flutuar de um quadro para o outro) e
 imprime as colunas/linhas/quadros prontos para copiar. Use `--columns 4` para
 quebrar em várias linhas.
 
-### Especificações da imagem para gerar na IA
+### Especificações da imagem para gerar na IA (manualmente)
 
-Peça **uma pose por vez**, sempre com estas regras:
+Se preferir gerar fora do painel, peça **uma pose por vez**, sempre com estas
+regras — são as mesmas que o painel aplica sozinho:
 
 - **PNG com fundo transparente**, personagem de corpo inteiro.
 - **Mesmo enquadramento em todas as poses**: mesma distância da câmera, mesmo

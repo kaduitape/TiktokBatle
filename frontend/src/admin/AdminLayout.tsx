@@ -7,6 +7,7 @@ const links = [
   { to: "/admin/battles", label: "Batalhas" },
   { to: "/admin/characters", label: "Personagens" },
   { to: "/admin/gifts", label: "Presentes" },
+  { to: "/admin/sprites", label: "Gerar sprites" },
   { to: "/admin/editor", label: "Editor de Arena" },
   { to: "/admin/music", label: "Músicas" },
   { to: "/admin/simulator", label: "Simulador" },

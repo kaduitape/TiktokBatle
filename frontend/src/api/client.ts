@@ -34,7 +34,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    // FastAPI puts the human-readable reason in `detail`; showing the raw JSON
+    // envelope instead would bury it in the middle of a status line.
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.detail === "string") detail = parsed.detail;
+    } catch {
+      /* not JSON -- keep the raw body */
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json();

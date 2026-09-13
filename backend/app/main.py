@@ -7,7 +7,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api import auth as auth_routes
-from app.api import battles, characters, gifts, live, music, players, settings_routes, simulator, ws_routes
+from app.api import (
+    battles,
+    characters,
+    gifts,
+    live,
+    music,
+    players,
+    settings_routes,
+    simulator,
+    sprites,
+    ws_routes,
+)
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.migrations import run_migrations
@@ -69,6 +80,7 @@ app.include_router(gifts.router)
 app.include_router(gifts.combo_router)
 app.include_router(players.router)
 app.include_router(simulator.router)
+app.include_router(sprites.router)
 app.include_router(live.router)
 app.include_router(music.router)
 app.include_router(settings_routes.router)

@@ -28,6 +28,10 @@ services:
       BATTLE_ADMIN_USERNAME: ${BATTLE_ADMIN_USERNAME:?Defina BATTLE_ADMIN_USERNAME no arquivo .env}
       BATTLE_ADMIN_PASSWORD: ${BATTLE_ADMIN_PASSWORD:?Defina BATTLE_ADMIN_PASSWORD no arquivo .env}
       BATTLE_SECRET_KEY: ${BATTLE_SECRET_KEY:?Defina BATTLE_SECRET_KEY no arquivo .env}
+      # Opcional: liga o gerador de sprites em Admin -> Gerar sprites. Sem ela
+      # o resto do sistema funciona igual, só esse painel fica desligado.
+      BATTLE_IMAGE_API_KEY: ${BATTLE_IMAGE_API_KEY:-}
+      BATTLE_IMAGE_MODEL: ${BATTLE_IMAGE_MODEL:-gpt-image-1}
     depends_on:
       postgres:
         condition: service_healthy
