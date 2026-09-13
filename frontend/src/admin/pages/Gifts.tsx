@@ -4,11 +4,13 @@ import { api } from "../../api/client";
 interface Gift {
   id: string;
   gift_key: string;
+  tiktok_gift_id: string | null;
   name: string;
   icon: string;
   action_type: "shot" | "missile" | "heal" | "super_heal" | "special";
   value: number;
   target_side: "A" | "B";
+  coins: number;
   animation_key: string;
   sound_key: string;
   combo_allowed: boolean;
@@ -18,11 +20,13 @@ interface Gift {
 
 const empty: Omit<Gift, "id"> = {
   gift_key: "",
+  tiktok_gift_id: null,
   name: "",
   icon: "🎁",
   action_type: "shot",
   value: -1,
   target_side: "A",
+  coins: 1,
   animation_key: "shot",
   sound_key: "shot",
   combo_allowed: true,
@@ -64,6 +68,13 @@ export default function Gifts() {
           <div>
             <label>Chave (gift_key, única)</label>
             <input value={form.gift_key} disabled={!!form.id} onChange={(e) => setForm({ ...form, gift_key: e.target.value })} />
+            <label>ID do presente no TikTok</label>
+            <input
+              value={form.tiktok_gift_id ?? ""}
+              inputMode="numeric"
+              placeholder="ID capturado no assistente Ao vivo"
+              onChange={(e) => setForm({ ...form, tiktok_gift_id: e.target.value.trim() || null })}
+            />
             <label>Nome</label>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <label>Ícone (emoji)</label>
@@ -85,6 +96,8 @@ export default function Gifts() {
               <option value="A">Lado A</option>
               <option value="B">Lado B</option>
             </select>
+            <label>Moedas do TikTok</label>
+            <input type="number" min="0" value={form.coins} onChange={(e) => setForm({ ...form, coins: Number(e.target.value) })} />
             <label>Multiplicador</label>
             <input type="number" step="0.1" value={form.multiplier} onChange={(e) => setForm({ ...form, multiplier: Number(e.target.value) })} />
             <label>
@@ -105,12 +118,14 @@ export default function Gifts() {
         <table>
           <thead>
             <tr>
+              <th>ID TikTok</th>
               <th>Ícone</th><th>Nome</th><th>Ação</th><th>Valor</th><th>Alvo</th><th>Ativo</th><th></th>
             </tr>
           </thead>
           <tbody>
             {gifts.map((g) => (
               <tr key={g.id}>
+                <td><code>{g.tiktok_gift_id || "nÃ£o mapeado"}</code></td>
                 <td style={{ fontSize: 20 }}>{g.icon}</td>
                 <td>{g.name}</td>
                 <td>{g.action_type}</td>

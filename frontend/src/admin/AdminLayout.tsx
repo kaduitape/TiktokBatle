@@ -3,7 +3,7 @@ import { clearToken, isAuthenticated } from "../auth";
 
 const links = [
   { to: "/admin", label: "Dashboard", end: true },
-  { to: "/admin/live", label: "Live" },
+  { to: "/admin/live", label: "Ao vivo" },
   { to: "/admin/battles", label: "Batalhas" },
   { to: "/admin/characters", label: "Personagens" },
   { to: "/admin/gifts", label: "Presentes" },

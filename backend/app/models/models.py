@@ -125,6 +125,10 @@ class Gift(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
     gift_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    # Stable ID emitted by TikTok for this gift. It is intentionally separate
+    # from gift_key: the latter is a human/admin-facing key also used by the
+    # simulator, while TikTok sends numeric IDs such as "5655".
+    tiktok_gift_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     icon: Mapped[str] = mapped_column(String, default="🎁")
     image_url: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -147,6 +151,24 @@ class Gift(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TikTokGiftObservation(Base):
+    """A gift seen in a real TikTok LIVE but not necessarily mapped yet.
+
+    Recording observations lets the live setup wizard show the exact numeric
+    TikTok IDs sent by the current room. An operator can then map one to a
+    configured game action without guessing IDs or reading container logs.
+    """
+
+    __tablename__ = "tiktok_gift_observations"
+
+    tiktok_gift_id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    coins: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seen_count: Mapped[int] = mapped_column(Integer, default=1)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ComboTier(Base):

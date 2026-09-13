@@ -1,10 +1,12 @@
 import asyncio
+from importlib.metadata import PackageNotFoundError, version
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.auth import require_admin
+from app.core.config import settings
 from app.providers.tiktok_provider import tiktok_provider
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -13,6 +15,21 @@ logger = logging.getLogger("live_api")
 
 class ConnectRequest(BaseModel):
     tiktok_username: str
+
+
+@router.get("/diagnostics")
+async def live_diagnostics(_: str = Depends(require_admin)):
+    """Small, safe readiness report used by the live setup wizard."""
+    try:
+        tiktoklive_version = version("TikTokLive")
+    except PackageNotFoundError:
+        tiktoklive_version = None
+    return {
+        "tiktoklive_installed": tiktoklive_version is not None,
+        "tiktoklive_version": tiktoklive_version,
+        "public_url": settings.public_url.rstrip("/"),
+        "reconnect_seconds": settings.tiktok_reconnect_seconds,
+    }
 
 
 @router.post("/{session_id}/connect")
@@ -42,4 +59,4 @@ async def disconnect_live(session_id: str, _: str = Depends(require_admin)):
 
 @router.get("/{session_id}/status")
 async def live_status(session_id: str, _: str = Depends(require_admin)):
-    return {"connected": tiktok_provider.is_connected(session_id)}
+    return tiktok_provider.status(session_id)

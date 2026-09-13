@@ -1,5 +1,7 @@
 # TikTok Battle Arena
 
+> Deploy em produção com Traefik e Cloudflare: veja [DEPLOY_TRAEFIK.md](DEPLOY_TRAEFIK.md).
+
 Jogo 2D interativo em tempo real para TikTok LIVE: espectadores entram na arena
 como bolinhas físicas com sua foto de perfil, e presentes da live viram
 ataques, curas e combos contra um dos dois personagens configuráveis (Lado A

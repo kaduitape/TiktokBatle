@@ -155,6 +155,138 @@ button:hover {
   background: #2a2a40;
 }
 
+/* ---- Live setup wizard ---- */
+
+.live-step {
+  display: flex;
+  gap: 14px;
+}
+
+.live-step h3 {
+  margin: 1px 0 8px;
+}
+
+.live-step p {
+  margin: 7px 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.live-step-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-number {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #4a4af0;
+  font-weight: 700;
+}
+
+.hint {
+  color: #9a9ac0;
+}
+
+.live-url {
+  flex: 1;
+  min-width: 280px;
+}
+
+.button-link {
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: #2a2a40;
+  color: #eee;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.live-status {
+  margin-bottom: 0;
+}
+
+.live-status.connected,
+.success,
+.done {
+  color: #8be28b;
+}
+
+.live-status.reconnecting,
+.live-status.connecting {
+  color: #ffcf66;
+}
+
+.live-status.error,
+.error,
+.error-text {
+  color: #ff8080;
+}
+
+.live-message {
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #16161f;
+  border: 1px solid #32324a;
+}
+
+.gift-observation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid #262638;
+}
+
+.gift-observation small {
+  display: block;
+  color: #9a9ac0;
+  margin-top: 4px;
+}
+
+.pill.mapped {
+  color: #8be28b;
+}
+
+.checklist {
+  margin: 10px 0;
+  padding-left: 22px;
+  color: #b6b6d0;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+@media (max-width: 700px) {
+  .admin-layout {
+    display: block;
+  }
+
+  .admin-nav {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid #26263a;
+  }
+
+  .admin-content {
+    padding: 22px 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gift-observation {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 /* ---- Arena (OBS source) ---- */
 
 .arena-viewport {

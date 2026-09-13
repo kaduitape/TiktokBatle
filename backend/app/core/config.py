@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://battle:battle@postgres:5432/battle"
     redis_url: str = "redis://redis:6379/0"
 
+    # Public HTTPS address used by the live setup wizard when it generates the
+    # OBS Browser Source URL. It is configuration, never inferred from an
+    # untrusted Host header.
+    public_url: str = ""
+    tiktok_reconnect_seconds: int = 10
+    tiktok_reconnect_max_seconds: int = 60
+
     max_players_default: int = 500
     default_xp_max: int = 100_000
 

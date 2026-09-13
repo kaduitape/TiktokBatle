@@ -25,6 +25,9 @@ services:
       BATTLE_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-battle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-battle}
       BATTLE_REDIS_URL: redis://redis:6379/0
       BATTLE_CORS_ORIGINS: ${BATTLE_CORS_ORIGINS:-["http://localhost","http://127.0.0.1"]}
+      BATTLE_PUBLIC_URL: ${BATTLE_PUBLIC_URL:-}
+      BATTLE_TIKTOK_RECONNECT_SECONDS: ${BATTLE_TIKTOK_RECONNECT_SECONDS:-10}
+      BATTLE_TIKTOK_RECONNECT_MAX_SECONDS: ${BATTLE_TIKTOK_RECONNECT_MAX_SECONDS:-60}
       BATTLE_ADMIN_USERNAME: ${BATTLE_ADMIN_USERNAME:?Defina BATTLE_ADMIN_USERNAME no arquivo .env}
       BATTLE_ADMIN_PASSWORD: ${BATTLE_ADMIN_PASSWORD:?Defina BATTLE_ADMIN_PASSWORD no arquivo .env}
       BATTLE_SECRET_KEY: ${BATTLE_SECRET_KEY:?Defina BATTLE_SECRET_KEY no arquivo .env}
@@ -55,7 +58,9 @@ services:
     depends_on:
       - backend
     ports:
-      - "${HTTP_PORT:-8080}:80"
+      # Keep the fallback HTTP port private. In production Traefik reaches
+      # this container on its Docker network and is the only public gateway.
+      - "${HTTP_BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:80"
 
 volumes:
   postgres_data:

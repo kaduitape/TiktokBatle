@@ -12,3 +12,7 @@ websockets==13.1
 aiofiles==24.1.0
 httpx==0.27.2
 Pillow==10.4.0
+# The production TikTok LIVE event client. Keep this pinned: TikTok's
+# Webcast protocol evolves and a deliberate upgrade/test is safer than an
+# unexpected image rebuild changing the event schema.
+TikTokLive==7.0.1

@@ -7,7 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.models.models import Battle, BattleEvent, BattleSession, Character, Player
+from app.models.models import (
+    Battle,
+    BattleEvent,
+    BattleSession,
+    Character,
+    Player,
+    TikTokGiftObservation,
+)
 from app.schemas.schemas import LiveEvent
 from app.services.avatar_service import avatar_service
 from app.services.battle_manager import battle_manager
@@ -113,9 +120,9 @@ class GamePipeline:
     async def _handle_gift(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
-        gift = gift_cache.get(event.gift.id)
+        gift = await self._resolve_gift(db, event)
         if gift is None or not gift.active:
-            logger.warning("unknown or inactive gift_key=%s ignored", event.gift.id)
+            self._log_unknown_gift(event)
             return {}
 
         quantity = event.gift.quantity
@@ -243,9 +250,9 @@ class GamePipeline:
     async def _handle_gift_pvp(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
-        gift = gift_cache.get(event.gift.id)
+        gift = await self._resolve_gift(db, event)
         if gift is None or not gift.active:
-            logger.warning("unknown or inactive gift_key=%s ignored", event.gift.id)
+            self._log_unknown_gift(event)
             return {}
 
         quantity = event.gift.quantity
@@ -401,9 +408,9 @@ class GamePipeline:
     async def _handle_gift_tank_war(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
-        gift = gift_cache.get(event.gift.id)
+        gift = await self._resolve_gift(db, event)
         if gift is None or not gift.active:
-            logger.warning("unknown or inactive gift_key=%s ignored", event.gift.id)
+            self._log_unknown_gift(event)
             return {}
 
         quantity = event.gift.quantity
@@ -576,6 +583,67 @@ class GamePipeline:
             "kills": player.kills,
             "eliminated": player.eliminated,
         }
+
+    async def _resolve_gift(self, db: AsyncSession, event: LiveEvent):
+        """Use a provider-specific, immutable ID for real LIVE events.
+
+        Simulator events deliberately keep using the friendly ``gift_key``.
+        TikTok events, however, must never be matched by the translated gift
+        name: names vary by locale while TikTok's numeric gift ID is stable.
+        """
+        if event.gift is None:
+            return None
+
+        if event.raw.get("provider") != "tiktok":
+            return gift_cache.get(event.gift.id)
+
+        await self._record_tiktok_gift_observation(db, event)
+        return gift_cache.get_tiktok(event.gift.id)
+
+    async def _record_tiktok_gift_observation(self, db: AsyncSession, event: LiveEvent) -> None:
+        """Persist the exact incoming gift so the setup wizard can map it."""
+        if event.gift is None:
+            return
+
+        gift_id = str(event.gift.id)
+        observation = await db.get(TikTokGiftObservation, gift_id)
+        now = datetime.now(timezone.utc)
+        raw_coins = event.raw.get("coins")
+        try:
+            coins = int(raw_coins) if raw_coins is not None else None
+        except (TypeError, ValueError):
+            coins = None
+
+        if observation is None:
+            db.add(
+                TikTokGiftObservation(
+                    tiktok_gift_id=gift_id,
+                    name=event.gift.name or gift_id,
+                    coins=coins,
+                    seen_count=1,
+                    first_seen_at=now,
+                    last_seen_at=now,
+                )
+            )
+            return
+
+        observation.name = event.gift.name or observation.name
+        observation.coins = coins if coins is not None else observation.coins
+        observation.seen_count += 1
+        observation.last_seen_at = now
+
+    @staticmethod
+    def _log_unknown_gift(event: LiveEvent) -> None:
+        if event.gift is None:
+            return
+        if event.raw.get("provider") == "tiktok":
+            logger.warning(
+                "unmapped TikTok gift id=%s name=%s ignored; map it in Admin -> Ao vivo",
+                event.gift.id,
+                event.gift.name,
+            )
+            return
+        logger.warning("unknown or inactive gift_key=%s ignored", event.gift.id)
 
 
 game_pipeline = GamePipeline()

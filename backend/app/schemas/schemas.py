@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -93,6 +94,7 @@ class BattleOut(BattleIn):
 
 class GiftIn(BaseModel):
     gift_key: str
+    tiktok_gift_id: str | None = None
     name: str
     icon: str = "🎁"
     image_url: str | None = None
@@ -109,6 +111,20 @@ class GiftIn(BaseModel):
 
 class GiftOut(GiftIn):
     id: str
+
+    class Config:
+        from_attributes = True
+
+
+class TikTokGiftObservationOut(BaseModel):
+    tiktok_gift_id: str
+    name: str
+    coins: int | None = None
+    seen_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    configured_gift_id: str | None = None
+    configured_gift_key: str | None = None
 
     class Config:
         from_attributes = True
