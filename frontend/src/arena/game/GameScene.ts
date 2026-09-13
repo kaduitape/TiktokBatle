@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { API_BASE } from "../../api/client";
 import type { AttackMessage, ArenaMessage, CharacterPayload, PlayerJoinedMessage, StateSyncMessage } from "../../types/events";
-import { buildCharacterObject, isAnimated } from "./characterSprite";
+import { buildCharacterObject, flashAction, isAnimated, preloadActionArt, rememberIdlePose } from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { AvatarManager } from "./managers/AvatarManager";
 import { ComboManager } from "./managers/ComboManager";
@@ -160,6 +160,7 @@ export default class GameScene extends Phaser.Scene {
   private renderCharacter(meta: CharacterPayload, side: "A" | "B"): Phaser.GameObjects.Image | Phaser.GameObjects.Text {
     const { x, y } = this.characterPosition(meta, side);
     const url = resolveUrl(meta.image_url);
+    preloadActionArt(this, meta, resolveUrl);
 
     if (meta.shadow) {
       this.add.ellipse(x, y + 260 * meta.scale, 260 * meta.scale, 50 * meta.scale, 0x000000, 0.35).setDepth(9);
@@ -196,8 +197,7 @@ export default class GameScene extends Phaser.Scene {
   private buildCharSprite(key: string, x: number, y: number, meta: CharacterPayload): Phaser.GameObjects.Image {
     const img = buildCharacterObject(this, key, x, y, meta).setDepth(10);
     const targetHeight = 900 * meta.scale;
-    const scale = targetHeight / img.height;
-    img.setScale(scale);
+    rememberIdlePose(img, meta, key, targetHeight);
     if (meta.flip_h) img.setFlipX(true);
     if (meta.outline) img.setTint(0xffffff);
     if (meta.glow) {
@@ -275,8 +275,19 @@ export default class GameScene extends Phaser.Scene {
     const color = isHeal ? "#66ffb2" : "#ff5b5b";
     const sign = isHeal ? "+" : "";
 
-    const showNumber = () =>
+    const hurtSide = () => {
+      // Tied to the impact callback so the character reacts as the shot lands,
+      // not when it is fired.
+      if (isHeal || msg.xp_delta >= 0) return;
+      const meta = msg.target_side === "A" ? this.sideAMeta : this.sideBMeta;
+      const sprite = msg.target_side === "A" ? this.charSpriteA : this.charSpriteB;
+      if (meta && sprite) flashAction(this, sprite as Phaser.GameObjects.Image, meta, "hit", 340);
+    };
+
+    const showNumber = () => {
+      hurtSide();
       this.effects.floatingNumber(target.x, target.y - 40, `${sign}${Math.round(msg.xp_delta)}`, color);
+    };
 
     const tier = msg.combo.tier_animation;
     const showNumberIfAny = () => {

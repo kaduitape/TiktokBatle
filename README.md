@@ -141,16 +141,42 @@ no ar que existiam para dar vida a um desenho estático) — a folha já faz ess
 trabalho. Girar para mirar, o recuo do tiro e o tranco ao levar dano continuam
 valendo, porque são movimentos do personagem inteiro.
 
+### Imagens de reação (dano e disparo)
+
+Além da animação em loop, um personagem pode ter **dois desenhos avulsos** que
+entram por um instante quando algo acontece:
+
+| Campo | Quando aparece |
+|---|---|
+| **Imagem ao levar dano** | no instante em que o tiro acerta — na Guerra de Tanques quando o chefão leva um obus, no modo clássico quando o personagem perde XP |
+| **Imagem ao disparar** | na Guerra de Tanques, no instante do disparo de canhão (vale para o tiro dos espectadores e para a bomba do chefão) |
+
+As duas são opcionais e podem ser subidas à mão em **Admin → Personagens** ou
+geradas junto com a folha (abaixo). Sem elas nada muda: continua o tranco do
+recuo e a piscada vermelha de antes. Com a imagem de dano, a piscada vermelha
+é desligada — ela dobraria com um desenho que já está vermelho.
+
+A troca respeita a altura do personagem na tela, então a arte de reação não
+precisa ter as mesmas dimensões da arte parada. Quando duas reações se
+atropelam (levar dano no meio de um disparo), a mais recente manda, e só ela
+devolve o personagem à pose de descanso.
+
 ### Gerando as poses pelo próprio painel
 
 Com uma chave de imagem configurada, **Admin → Gerar sprites** faz tudo sem
-sair do navegador: você descreve o personagem uma vez, lista as poses, e o
-painel devolve a folha montada e já aplica no personagem escolhido.
+sair do navegador: você descreve o personagem (ou sobe a caricatura pronta),
+lista as poses, marca se quer as imagens de dano e de disparo, e o painel
+devolve tudo montado e já aplica no personagem escolhido.
 
-O truque que mantém o personagem igual entre os quadros: **só a primeira pose é
-gerada do zero**; todas as outras são *edições daquela mesma imagem*, com o
-prompt dizendo apenas o que muda. É por isso que a página pede uma descrição
-única do personagem e depois só a descrição de cada pose.
+O truque que mantém o personagem igual entre os quadros: **tudo é edição de uma
+única imagem de referência**. Essa referência é a caricatura que você subiu ou,
+se não subir nenhuma, a primeira pose gerada a partir da descrição. Todas as
+outras imagens — as outras poses, o dano, o disparo — saem de edições dela, com
+o prompt dizendo apenas o que muda.
+
+**Se você já tem o desenho, suba.** Aí a semelhança é a do seu desenho e não a
+que o modelo inventar, e a imagem enviada vira o **quadro 1** da animação.
+Nesse caso a descrição vira opcional (ajuda o modelo a entender o desenho).
 
 Para ligar, coloque a chave no `.env` do servidor e reinicie o backend:
 
@@ -164,9 +190,10 @@ volta para o navegador em nenhuma resposta, e o `.env` é ignorado pelo Git.
 Sem chave, a página continua abrindo e explica o que fazer — o resto do
 sistema não depende dela em nada.
 
-Cada pose é uma chamada à API e é cobrada à parte, então 4 poses = 4 imagens
-na sua fatura. O limite por geração é de 8 poses, justamente para um clique
-distraído não virar uma conta alta.
+Cada imagem é uma chamada à API e é cobrada à parte: 4 poses + dano + disparo =
+6 imagens na fatura (5 se você subiu a caricatura, porque aí o quadro 1 já é
+seu). O limite por geração é de 8 poses, justamente para um clique distraído
+não virar uma conta alta.
 
 ### Montando a folha a partir de imagens soltas
 

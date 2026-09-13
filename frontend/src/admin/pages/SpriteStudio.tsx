@@ -8,12 +8,14 @@ interface Status {
 }
 
 interface Sheet {
-  url: string;
+  url: string | null;
   columns: number;
   rows: number;
   frame_count: number;
   frame_width: number;
   frame_height: number;
+  hit_url: string | null;
+  fire_url: string | null;
 }
 
 interface Character {
@@ -24,6 +26,9 @@ interface Character {
 
 // A walk-cycle-ish loop that works for almost any caricature, so the page is
 // useful before the admin writes a single pose of their own.
+/** Transparent-background preview backdrop. */
+const CHECKER = "repeating-conic-gradient(#2a2a3a 0% 25%, #1b1b28 0% 50%) 50% / 24px 24px";
+
 const DEFAULT_POSES = [
   "braços abaixados ao lado do corpo, boca fechada, expressão neutra",
   "braço direito a meio caminho, subindo, boca levemente aberta",
@@ -35,6 +40,9 @@ export default function SpriteStudio() {
   const [status, setStatus] = useState<Status | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [description, setDescription] = useState("");
+  const [baseUrl, setBaseUrl] = useState<string | null>(null);
+  const [wantHit, setWantHit] = useState(true);
+  const [wantFire, setWantFire] = useState(true);
   const [poses, setPoses] = useState<string[]>(DEFAULT_POSES);
   const [columns, setColumns] = useState(0);
   const [fps, setFps] = useState(8);
@@ -48,6 +56,19 @@ export default function SpriteStudio() {
     api.get<Status>("/api/sprites/status").then(setStatus).catch(() => setStatus(null));
     api.get<Character[]>("/api/characters").then(setCharacters);
   }, []);
+
+  const uploadBase = async (file: File) => {
+    setBusy(true);
+    setError("");
+    try {
+      const { url } = await api.upload("/api/characters/upload", file);
+      setBaseUrl(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const setPose = (index: number, value: string) =>
     setPoses((list) => list.map((p, i) => (i === index ? value : p)));
@@ -64,6 +85,9 @@ export default function SpriteStudio() {
       const result = await api.post<Sheet>("/api/sprites/generate", {
         description,
         poses: poses.filter((p) => p.trim()),
+        base_image_url: baseUrl,
+        want_hit: wantHit,
+        want_fire: wantFire,
         columns,
       });
       setSheet(result);
@@ -83,13 +107,25 @@ export default function SpriteStudio() {
       const { id, ...rest } = character;
       await api.put(`/api/characters/${id}`, {
         ...rest,
-        image_url: sheet.url,
-        sprite_columns: sheet.columns,
-        sprite_rows: sheet.rows,
-        sprite_frame_count: sheet.frame_count,
-        sprite_fps: fps,
+        // Only overwrite what this run actually produced.
+        ...(sheet.url
+          ? {
+              image_url: sheet.url,
+              sprite_columns: sheet.columns,
+              sprite_rows: sheet.rows,
+              sprite_frame_count: sheet.frame_count,
+              sprite_fps: fps,
+            }
+          : {}),
+        ...(sheet.hit_url ? { hit_image_url: sheet.hit_url } : {}),
+        ...(sheet.fire_url ? { fire_image_url: sheet.fire_url } : {}),
       });
-      setApplied(`Folha aplicada em ${character.name}. Recarregue a Arena para ver.`);
+      const parts = [
+        sheet.url && "animação",
+        sheet.hit_url && "dano",
+        sheet.fire_url && "disparo",
+      ].filter(Boolean);
+      setApplied(`Aplicado em ${character.name} (${parts.join(", ")}). Recarregue a Arena para ver.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -128,7 +164,30 @@ export default function SpriteStudio() {
 
       <div className="card">
         <h3>Personagem</h3>
-        <label>Descrição (vale para todas as poses)</label>
+
+        <label>Caricatura pronta (opcional)</label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
+          Se você já tem o desenho, suba aqui: ele vira o <b>quadro 1</b> e serve de
+          referência para todas as outras imagens, então a semelhança é a do seu
+          desenho e não a que o modelo inventar. Sem imagem, o primeiro quadro é
+          gerado a partir da descrição abaixo.
+        </p>
+        <input type="file" accept="image/*" onChange={(e) => e.target.files && uploadBase(e.target.files[0])} />
+        {baseUrl && (
+          <div className="row" style={{ marginTop: 6 }}>
+            <img
+              src={`${API_BASE}${baseUrl}`}
+              alt="Imagem base"
+              style={{ width: 64, height: 64, objectFit: "contain" }}
+            />
+            <span className="pill">quadro 1</span>
+            <button className="secondary" onClick={() => setBaseUrl(null)}>Remover</button>
+          </div>
+        )}
+
+        <label style={{ marginTop: 14 }}>
+          Descrição {baseUrl ? "(ajuda o modelo a entender o desenho)" : "(vale para todas as poses)"}
+        </label>
         <textarea
           rows={3}
           placeholder="Ex: caricatura cartoon de um homem barbudo de terno azul e gravata vermelha"
@@ -166,6 +225,20 @@ export default function SpriteStudio() {
           + Adicionar pose
         </button>
 
+        <label style={{ marginTop: 14 }}>Imagens de ação</label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
+          Desenhos avulsos que entram por um instante quando a ação acontece no jogo.
+          Cada um é uma imagem cobrada à parte.
+        </p>
+        <label>
+          <input type="checkbox" checked={wantHit} onChange={(e) => setWantHit(e.target.checked)} /> Ao
+          levar dano — encolhendo, cara de dor
+        </label>
+        <label>
+          <input type="checkbox" checked={wantFire} onChange={(e) => setWantFire(e.target.checked)} /> Ao
+          disparar o canhão (Guerra de Tanques)
+        </label>
+
         <div className="row" style={{ marginTop: 14 }}>
           <div>
             <label>Colunas na folha (0 = tudo numa linha)</label>
@@ -178,7 +251,14 @@ export default function SpriteStudio() {
         </div>
 
         <div className="row" style={{ marginTop: 14 }}>
-          <button onClick={generate} disabled={busy || !description.trim() || usablePoses === 0}>
+          <button
+            onClick={generate}
+            disabled={
+              busy ||
+              (!description.trim() && !baseUrl) ||
+              (usablePoses === 0 && !wantHit && !wantFire)
+            }
+          >
             {busy ? "Gerando…" : "Gerar folha"}
           </button>
           {busy && (
@@ -195,20 +275,45 @@ export default function SpriteStudio() {
 
       {sheet && (
         <div className="card">
-          <h3>Folha gerada</h3>
-          <img
-            src={`${API_BASE}${sheet.url}`}
-            alt="folha de sprites gerada"
-            style={{
-              maxWidth: "100%",
-              background: "repeating-conic-gradient(#2a2a3a 0% 25%, #1b1b28 0% 50%) 50% / 24px 24px",
-              borderRadius: 6,
-            }}
-          />
-          <p style={{ fontSize: 13, marginTop: 10 }}>
-            {sheet.columns} coluna(s) × {sheet.rows} linha(s) — {sheet.frame_count} quadros de{" "}
-            {sheet.frame_width}×{sheet.frame_height} px
-          </p>
+          <h3>Resultado</h3>
+          {sheet.url && (
+            <>
+              <img
+                src={`${API_BASE}${sheet.url}`}
+                alt="folha de sprites gerada"
+                style={{ maxWidth: "100%", background: CHECKER, borderRadius: 6 }}
+              />
+              <p style={{ fontSize: 13, marginTop: 10 }}>
+                {sheet.columns} coluna(s) × {sheet.rows} linha(s) — {sheet.frame_count} quadros de{" "}
+                {sheet.frame_width}×{sheet.frame_height} px
+              </p>
+            </>
+          )}
+
+          {(sheet.hit_url || sheet.fire_url) && (
+            <div className="row" style={{ marginTop: 10, alignItems: "flex-start" }}>
+              {sheet.hit_url && (
+                <figure style={{ margin: 0 }}>
+                  <img
+                    src={`${API_BASE}${sheet.hit_url}`}
+                    alt="pose de dano"
+                    style={{ width: 160, background: CHECKER, borderRadius: 6 }}
+                  />
+                  <figcaption style={{ fontSize: 12, color: "#9a9ac0" }}>ao levar dano</figcaption>
+                </figure>
+              )}
+              {sheet.fire_url && (
+                <figure style={{ margin: 0 }}>
+                  <img
+                    src={`${API_BASE}${sheet.fire_url}`}
+                    alt="pose de disparo"
+                    style={{ width: 160, background: CHECKER, borderRadius: 6 }}
+                  />
+                  <figcaption style={{ fontSize: 12, color: "#9a9ac0" }}>ao disparar</figcaption>
+                </figure>
+              )}
+            </div>
+          )}
 
           <div className="row" style={{ marginTop: 10 }}>
             <select value={targetId} onChange={(e) => setTargetId(e.target.value)}>
@@ -222,9 +327,11 @@ export default function SpriteStudio() {
             <button onClick={applyToCharacter} disabled={busy || !targetId}>
               Aplicar
             </button>
-            <a className="secondary" href={`${API_BASE}${sheet.url}`} target="_blank" rel="noreferrer">
-              Baixar PNG
-            </a>
+            {sheet.url && (
+              <a className="secondary" href={`${API_BASE}${sheet.url}`} target="_blank" rel="noreferrer">
+                Baixar PNG
+              </a>
+            )}
           </div>
           {applied && <p style={{ color: "#4ade80", fontSize: 13, marginTop: 10 }}>{applied}</p>}
         </div>

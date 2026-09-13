@@ -56,6 +56,8 @@ class CharacterIn(BaseModel):
     sprite_rows: int = 1
     sprite_frame_count: int = 0
     sprite_fps: int = 10
+    hit_image_url: str | None = None
+    fire_image_url: str | None = None
     xp_max: int = 100_000
 
 

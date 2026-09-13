@@ -16,6 +16,9 @@ export interface CharacterPayload {
   sprite_rows: number;
   sprite_frame_count: number;
   sprite_fps: number;
+  /** Reaction art, swapped in briefly when the character is hit or fires. */
+  hit_image_url: string | null;
+  fire_image_url: string | null;
   xp_max: number;
 }
 

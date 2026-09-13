@@ -10,7 +10,7 @@ import type {
   TankShotMessage,
 } from "../../types/events";
 import { resolveAssetUrl } from "./avatarTexture";
-import { buildCharacterObject, isAnimated } from "./characterSprite";
+import { buildCharacterObject, flashAction, isAnimated, preloadActionArt, rememberIdlePose } from "./characterSprite";
 import { AudioManager } from "./managers/AudioManager";
 import { ComboManager } from "./managers/ComboManager";
 import { EffectsManager } from "./managers/EffectsManager";
@@ -193,6 +193,7 @@ export default class TankWarScene extends Phaser.Scene {
   private spawnGunner(side: "A" | "B", meta: CharacterPayload) {
     const x = meta.pos_x * ARENA_WIDTH;
     const y = meta.pos_y * ARENA_HEIGHT;
+    preloadActionArt(this, meta, resolveAssetUrl);
     const facing: 1 | -1 = meta.flip_h ? -1 : 1;
     const url = resolveAssetUrl(meta.image_url);
 
@@ -235,7 +236,7 @@ export default class TankWarScene extends Phaser.Scene {
 
   private buildGunnerSprite(key: string, x: number, y: number, meta: CharacterPayload): Phaser.GameObjects.Image {
     const img = buildCharacterObject(this, key, x, y, meta).setDepth(10);
-    img.setScale((GUNNER_TARGET_HEIGHT * meta.scale) / img.height);
+    rememberIdlePose(img, meta, key, GUNNER_TARGET_HEIGHT * meta.scale);
     if (meta.flip_h) img.setFlipX(true);
     if (meta.glow) {
       try {
@@ -303,8 +304,11 @@ export default class TankWarScene extends Phaser.Scene {
 
   /** Swivels the tank toward its target, kicks back from the recoil, then
    * settles back to the idle pose. */
-  private aimAndRecoil(gunner: Gunner, targetY: number) {
+  private aimAndRecoil(gunner: Gunner, targetY: number, showFireArt = false) {
     const sprite = gunner.sprite;
+    // The firing pose covers the swivel; the recoil tween below still runs, so
+    // the tank moves whether or not the character has the art.
+    if (showFireArt) flashAction(this, sprite as Phaser.GameObjects.Image, gunner.meta, "fire", 420);
     const tilt = Phaser.Math.Clamp((targetY - sprite.y) / 2600, -0.12, 0.12) * gunner.facing;
 
     this.tweens.killTweensOf(sprite);
@@ -345,7 +349,7 @@ export default class TankWarScene extends Phaser.Scene {
       ? { x: targetBoss.sprite.x, y: targetBoss.sprite.y }
       : { x: msg.target_side === "A" ? ARENA_WIDTH * 0.26 : ARENA_WIDTH * 0.74, y: CEILING_Y + 200 };
 
-    if (gunner) this.aimAndRecoil(gunner, impact.y);
+    if (gunner) this.aimAndRecoil(gunner, impact.y, true);
 
     // Coin price decides how heavy the shell reads on screen.
     const heavy = msg.gift.coins >= 100;
@@ -389,7 +393,7 @@ export default class TankWarScene extends Phaser.Scene {
     const to = { x: victim.sprite.x, y: victim.sprite.y };
     const victimName = msg.victim.username.toUpperCase();
 
-    if (boss) this.aimAndRecoil(boss, to.y);
+    if (boss) this.aimAndRecoil(boss, to.y, true);
 
     const bomb = this.add
       .text(from.x, from.y, "💣", { fontSize: "46px" })
@@ -439,6 +443,8 @@ export default class TankWarScene extends Phaser.Scene {
   /** Boss reacting to a hit: a quick recoil shudder and a red flash. */
   private flinch(gunner: Gunner) {
     const sprite = gunner.sprite as Phaser.GameObjects.Image;
+    // With hurt art the red tint would double up on an already-red drawing.
+    const showedHurtArt = flashAction(this, sprite, gunner.meta, "hit", 340);
     this.tweens.add({
       targets: sprite,
       x: gunner.baseX + 10 * gunner.facing,
@@ -447,7 +453,7 @@ export default class TankWarScene extends Phaser.Scene {
       repeat: 1,
       onComplete: () => sprite.setPosition(gunner.baseX, gunner.baseY),
     });
-    if ((sprite as any).setTint) {
+    if (!showedHurtArt && (sprite as any).setTint) {
       (sprite as any).setTint(0xff8888);
       this.time.delayedCall(140, () => (sprite as any).clearTint?.());
     }

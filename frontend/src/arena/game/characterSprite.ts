@@ -11,6 +11,104 @@ export function isAnimated(meta: CharacterPayload): boolean {
   return (meta.sprite_columns ?? 0) > 0;
 }
 
+/** Reaction art: stills swapped in for a moment when the character does
+ * something. `hit` plays when it takes damage, `fire` when it shoots. */
+export type ActionKind = "hit" | "fire";
+
+const actionUrl = (meta: CharacterPayload, kind: ActionKind): string | null =>
+  (kind === "hit" ? meta.hit_image_url : meta.fire_image_url) ?? null;
+
+export const actionTextureKey = (meta: CharacterPayload, kind: ActionKind): string =>
+  `char_${meta.id}__${kind}`;
+
+/** Loads whichever reaction stills the character has. Fire-and-forget: if one
+ * has not arrived by the time it is needed, the swap is simply skipped. */
+export function preloadActionArt(
+  scene: Phaser.Scene,
+  meta: CharacterPayload,
+  resolve: (url: string | null) => string | null
+): void {
+  (["hit", "fire"] as const).forEach((kind) => {
+    const url = resolve(actionUrl(meta, kind));
+    const key = actionTextureKey(meta, kind);
+    if (!url || scene.textures.exists(key)) return;
+    scene.load.setCORS("anonymous");
+    scene.load.image(key, url);
+    scene.load.start();
+  });
+}
+
+interface IdlePose {
+  textureKey: string;
+  animKey: string | null;
+  targetHeight: number;
+  /** Bumped on every swap so a late restore from an earlier swap is ignored. */
+  token: number;
+}
+
+const IDLE_POSE = "idlePose";
+
+/** Scales the sprite so it keeps the same on-screen height no matter which
+ * texture it is showing -- reaction art rarely has the idle art's dimensions. */
+function fitHeight(sprite: Phaser.GameObjects.Image, targetHeight: number): void {
+  const height = sprite.height || 1;
+  sprite.setScale(targetHeight / height);
+}
+
+/** Records what the sprite looks like at rest, so a reaction can be undone. */
+export function rememberIdlePose(
+  sprite: Phaser.GameObjects.Image,
+  meta: CharacterPayload,
+  imageKey: string,
+  targetHeight: number
+): void {
+  const animated = isAnimated(meta) && scene_hasAnim(sprite, `${imageKey}__loop`);
+  sprite.setData(IDLE_POSE, {
+    textureKey: animated ? `${imageKey}__sheet` : imageKey,
+    animKey: animated ? `${imageKey}__loop` : null,
+    targetHeight,
+    token: 0,
+  } satisfies IdlePose);
+  fitHeight(sprite, targetHeight);
+}
+
+function scene_hasAnim(sprite: Phaser.GameObjects.Image, key: string): boolean {
+  return !!sprite.scene?.anims?.exists(key);
+}
+
+/** Swaps in the reaction art for `ms`, then puts the idle art back. Returns
+ * false when the character has no art for that action, so the caller can fall
+ * back to the tint-and-shake it already had. */
+export function flashAction(
+  scene: Phaser.Scene,
+  sprite: Phaser.GameObjects.Image,
+  meta: CharacterPayload,
+  kind: ActionKind,
+  ms = 320
+): boolean {
+  const key = actionTextureKey(meta, kind);
+  const idle = sprite.getData(IDLE_POSE) as IdlePose | undefined;
+  if (!idle || !scene.textures.exists(key) || !sprite.active) return false;
+
+  const token = idle.token + 1;
+  idle.token = token;
+
+  const asSprite = sprite as Phaser.GameObjects.Sprite;
+  asSprite.anims?.stop?.();
+  sprite.setTexture(key);
+  fitHeight(sprite, idle.targetHeight);
+
+  scene.time.delayedCall(ms, () => {
+    // A newer reaction started while this one was showing -- it owns the
+    // sprite now, and will restore the idle pose when it finishes.
+    if (!sprite.active || idle.token !== token) return;
+    sprite.setTexture(idle.textureKey);
+    fitHeight(sprite, idle.targetHeight);
+    if (idle.animKey) asSprite.play?.(idle.animKey);
+  });
+  return true;
+}
+
 function frameCount(meta: CharacterPayload, columns: number, rows: number): number {
   const cells = columns * rows;
   const declared = meta.sprite_frame_count ?? 0;

@@ -47,6 +47,12 @@ class Character(Base):
     sprite_frame_count: Mapped[int] = mapped_column(Integer, default=0)
     sprite_fps: Mapped[int] = mapped_column(Integer, default=10)
 
+    # Reaction art: single stills swapped in for a moment when the character
+    # does something. Optional -- without them the character just keeps its
+    # idle art and the existing shake/tint still plays.
+    hit_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    fire_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
     xp_max: Mapped[int] = mapped_column(Integer, default=100_000)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

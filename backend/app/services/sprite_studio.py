@@ -2,14 +2,17 @@
 
 The hard part of a sprite sheet is not drawing one good pose, it is drawing
 several that match: same character, same framing, same size. Image models are
-bad at repeating themselves from a text prompt alone, so this generates the
-first pose and then asks the model to *edit that same image* for every pose
-after it. The base image carries the identity; the prompt only says what moved.
+bad at repeating themselves from a text prompt alone, so everything here is
+built from a single reference image -- either one the admin uploaded or one
+generated from their description. Every other image, including the reaction
+stills, is an *edit* of that reference: identity comes from the picture, and
+the prompt only says what changed.
 """
 from __future__ import annotations
 
 import base64
 import logging
+from dataclasses import dataclass
 from io import BytesIO
 
 import httpx
@@ -85,26 +88,37 @@ async def _post(client: httpx.AsyncClient, path: str, **kwargs) -> Image.Image:
     return _decode(response.json())
 
 
-async def generate_frames(
-    description: str,
-    poses: list[str],
-    size: str = DEFAULT_SIZE,
-) -> list[Image.Image]:
-    """First pose from text, every other pose as an edit of that first image."""
-    key = _require_key()
-    if not description.strip():
-        raise SpriteStudioError("Descreva o personagem antes de gerar.")
-    poses = [p.strip() for p in poses if p.strip()]
-    if not poses:
-        raise SpriteStudioError("Informe pelo menos uma pose.")
+def _as_png(image: Image.Image) -> bytes:
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
-    headers = {"Authorization": f"Bearer {key}"}
-    frames: list[Image.Image] = []
 
+async def _edit(client: httpx.AsyncClient, base: bytes, instruction: str, size: str) -> Image.Image:
+    """Asks the model to change one thing about an image it is handed. This is
+    the whole trick: identity comes from the reference, not from the words."""
+    return await _post(
+        client,
+        "/images/edits",
+        data={
+            "model": settings.image_model,
+            "prompt": (
+                "Keep the exact same character, art style, colors, size and framing "
+                f"as the reference image. Change only this: {instruction}. {STYLE_RULES}"
+            ),
+            "size": size,
+            "background": "transparent",
+            "n": "1",
+        },
+        files={"image": ("base.png", base, "image/png")},
+    )
+
+
+def _open_client() -> httpx.AsyncClient:
     try:
-        client = httpx.AsyncClient(
+        return httpx.AsyncClient(
             base_url=settings.image_api_base.rstrip("/"),
-            headers=headers,
+            headers={"Authorization": f"Bearer {_require_key()}"},
             timeout=settings.image_timeout_seconds,
         )
     except httpx.InvalidURL as exc:
@@ -114,52 +128,97 @@ async def generate_frames(
             f"BATTLE_IMAGE_API_BASE inválido ({settings.image_api_base!r}): {exc}"
         ) from exc
 
-    async with client:
-        first = await _post(
-            client,
-            "/images/generations",
-            json={
-                "model": settings.image_model,
-                "prompt": f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
-                "size": size,
-                "background": "transparent",
-                "output_format": "png",
-                "n": 1,
-            },
-        )
-        frames.append(first)
-        logger.info("sprite studio: pose 1/%d gerada", len(poses))
 
-        for index, pose in enumerate(poses[1:], start=2):
-            buffer = BytesIO()
-            first.save(buffer, format="PNG")
-            buffer.seek(0)
-            edited = await _post(
-                client,
-                "/images/edits",
-                data={
-                    "model": settings.image_model,
-                    "prompt": (
-                        "Keep the exact same character, art style, colors, size and framing "
-                        f"as the reference image. Change only the pose to: {pose}. {STYLE_RULES}"
-                    ),
-                    "size": size,
-                    "background": "transparent",
-                    "n": "1",
-                },
-                files={"image": ("base.png", buffer.getvalue(), "image/png")},
-            )
-            frames.append(edited)
-            logger.info("sprite studio: pose %d/%d gerada", index, len(poses))
+@dataclass
+class StudioResult:
+    """Everything one run produced: the looping sheet plus the reaction stills."""
 
-    return frames
+    sheet: SheetLayout | None
+    hit: bytes | None
+    fire: bytes | None
 
 
-async def generate_sheet(
+async def generate_artwork(
     description: str,
     poses: list[str],
+    base_image: bytes | None = None,
+    want_hit: bool = False,
+    want_fire: bool = False,
     columns: int = 0,
     size: str = DEFAULT_SIZE,
-) -> SheetLayout:
-    frames = await generate_frames(description, poses, size=size)
-    return compose_sheet(frames, columns=columns)
+) -> StudioResult:
+    """Produces a character's art in one run.
+
+    The reference image is either uploaded by the admin (a caricature they
+    already have) or generated from `description`. Everything else -- the other
+    idle poses, the taking-a-hit still, the firing still -- is an edit of that
+    one reference, because a model cannot redraw the same character twice from
+    words but can modify one it is given.
+    """
+    poses = [p.strip() for p in poses if p.strip()]
+    if base_image is None and not description.strip():
+        raise SpriteStudioError("Descreva o personagem ou envie uma imagem base.")
+    if not poses and not want_hit and not want_fire:
+        raise SpriteStudioError("Escolha pelo menos uma pose ou uma imagem de ação.")
+
+    frames: list[Image.Image] = []
+
+    async with _open_client() as client:
+        if base_image is not None:
+            # The uploaded caricature is the character's neutral frame, and the
+            # reference every other image is edited from.
+            try:
+                reference = Image.open(BytesIO(base_image)).convert("RGBA")
+            except Exception as exc:  # noqa: BLE001 - anything unreadable is the same problem
+                raise SpriteStudioError("Não consegui ler a imagem base enviada.") from exc
+            frames.append(reference)
+            pose_instructions = poses
+        else:
+            first = await _post(
+                client,
+                "/images/generations",
+                json={
+                    "model": settings.image_model,
+                    "prompt": f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
+                    "size": size,
+                    "background": "transparent",
+                    "output_format": "png",
+                    "n": 1,
+                },
+            )
+            frames.append(first)
+            pose_instructions = poses[1:]
+            logger.info("sprite studio: quadro 1 gerado do texto")
+
+        reference_png = _as_png(frames[0])
+
+        for index, pose in enumerate(pose_instructions, start=len(frames) + 1):
+            frames.append(await _edit(client, reference_png, f"the pose becomes {pose}", size))
+            logger.info("sprite studio: quadro %d gerado", index)
+
+        hit = fire = None
+        if want_hit:
+            hit = _as_png(
+                await _edit(
+                    client,
+                    reference_png,
+                    "the character is being hit and hurt right now: recoiling backwards, "
+                    "face twisted in pain, eyes squeezed shut, arms thrown up defensively",
+                    size,
+                )
+            )
+            logger.info("sprite studio: imagem de dano gerada")
+        if want_fire:
+            fire = _as_png(
+                await _edit(
+                    client,
+                    reference_png,
+                    "the character is firing a big cannon shot right now: leaning into the "
+                    "recoil, determined shouting expression, arms braced forward",
+                    size,
+                )
+            )
+            logger.info("sprite studio: imagem de disparo gerada")
+
+    sheet = compose_sheet(frames, columns=columns) if frames else None
+    return StudioResult(sheet=sheet, hit=hit, fire=fire)

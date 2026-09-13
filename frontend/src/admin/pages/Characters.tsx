@@ -18,6 +18,8 @@ interface Character {
   sprite_rows: number;
   sprite_frame_count: number;
   sprite_fps: number;
+  hit_image_url: string | null;
+  fire_image_url: string | null;
   xp_max: number;
 }
 
@@ -39,6 +41,8 @@ const empty: Omit<Character, "id"> = {
   sprite_rows: 1,
   sprite_frame_count: 0,
   sprite_fps: 10,
+  hit_image_url: null,
+  fire_image_url: null,
   xp_max: 100000,
 };
 
@@ -72,7 +76,7 @@ export default function Characters() {
     load();
   };
 
-  const upload = async (file: File, field: "image_url" | "background_url") => {
+  const upload = async (file: File, field: "image_url" | "background_url" | "hit_image_url" | "fire_image_url") => {
     const { url } = await api.upload("/api/characters/upload", file);
     setForm((f) => ({ ...f, [field]: url }));
   };
@@ -155,6 +159,31 @@ export default function Characters() {
                 />
               </div>
             </div>
+
+            <label>Imagem ao levar dano (opcional)</label>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 6px" }}>
+              Aparece por um instante quando o personagem toma um tiro. Sem ela, ele
+              só pisca em vermelho como antes.
+            </p>
+            <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "hit_image_url")} />
+            {form.hit_image_url && (
+              <div className="row" style={{ marginTop: 6 }}>
+                <img src={form.hit_image_url} alt="Prévia de dano" style={{ width: 54, height: 54, objectFit: "contain" }} />
+                <button className="secondary" onClick={() => setForm({ ...form, hit_image_url: null })}>Remover</button>
+              </div>
+            )}
+
+            <label>Imagem ao disparar (opcional)</label>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 6px" }}>
+              Usada na Guerra de Tanques, no instante do disparo de canhão.
+            </p>
+            <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "fire_image_url")} />
+            {form.fire_image_url && (
+              <div className="row" style={{ marginTop: 6 }}>
+                <img src={form.fire_image_url} alt="Prévia de disparo" style={{ width: 54, height: 54, objectFit: "contain" }} />
+                <button className="secondary" onClick={() => setForm({ ...form, fire_image_url: null })}>Remover</button>
+              </div>
+            )}
 
             <label>Fundo</label>
             <input type="file" accept="image/*" onChange={(e) => e.target.files && upload(e.target.files[0], "background_url")} />
