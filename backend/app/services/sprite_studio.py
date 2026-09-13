@@ -19,6 +19,7 @@ import httpx
 from PIL import Image
 
 from app.core.config import settings
+from app.services import secret_store
 from app.services.sprite_sheet import SheetLayout, compose_sheet
 
 logger = logging.getLogger("sprite_studio")
@@ -42,17 +43,34 @@ class SpriteStudioError(RuntimeError):
     """Something the admin can act on -- shown as-is in the panel."""
 
 
-def is_configured() -> bool:
-    return bool(settings.image_api_key)
+async def resolve_key() -> tuple[str | None, str | None]:
+    """The key in use and where it came from.
+
+    A key pasted in the panel wins over BATTLE_IMAGE_API_KEY, so the panel is
+    always the last word on a server where both were set -- otherwise saving a
+    new key would appear to do nothing.
+    """
+    saved = await secret_store.get(secret_store.IMAGE_API_KEY)
+    if saved:
+        return saved, "panel"
+    if settings.image_api_key:
+        return settings.image_api_key, "env"
+    return None, None
 
 
-def _require_key() -> str:
-    if not settings.image_api_key:
+async def is_configured() -> bool:
+    key, _ = await resolve_key()
+    return bool(key)
+
+
+async def _require_key() -> str:
+    key, _ = await resolve_key()
+    if not key:
         raise SpriteStudioError(
-            "Nenhuma chave de imagem configurada. Defina BATTLE_IMAGE_API_KEY no .env "
-            "e reinicie o backend."
+            "Nenhuma chave de imagem configurada. Cole a chave em Admin -> Gerar sprites, "
+            "ou defina BATTLE_IMAGE_API_KEY no .env do servidor."
         )
-    return settings.image_api_key
+    return key
 
 
 def _decode(payload: dict) -> Image.Image:
@@ -114,11 +132,11 @@ async def _edit(client: httpx.AsyncClient, base: bytes, instruction: str, size: 
     )
 
 
-def _open_client() -> httpx.AsyncClient:
+def _open_client(key: str) -> httpx.AsyncClient:
     try:
         return httpx.AsyncClient(
             base_url=settings.image_api_base.rstrip("/"),
-            headers={"Authorization": f"Bearer {_require_key()}"},
+            headers={"Authorization": f"Bearer {key}"},
             timeout=settings.image_timeout_seconds,
         )
     except httpx.InvalidURL as exc:
@@ -162,8 +180,9 @@ async def generate_artwork(
         raise SpriteStudioError("Escolha pelo menos uma pose ou uma imagem de ação.")
 
     frames: list[Image.Image] = []
+    key = await _require_key()
 
-    async with _open_client() as client:
+    async with _open_client(key) as client:
         if base_image is not None:
             # The uploaded caricature is the character's neutral frame, and the
             # reference every other image is edited from.
@@ -222,3 +241,20 @@ async def generate_artwork(
 
     sheet = compose_sheet(frames, columns=columns) if frames else None
     return StudioResult(sheet=sheet, hit=hit, fire=fire)
+
+
+async def verify_key(candidate: str | None = None) -> str:
+    """Checks a key against the provider without generating anything.
+
+    Listing models costs nothing, so the panel can confirm a key works before
+    the admin spends credits finding out that it does not.
+    """
+    key = candidate or await _require_key()
+    async with _open_client(key) as client:
+        try:
+            response = await client.get("/models")
+        except httpx.HTTPError as exc:
+            raise SpriteStudioError(f"Não foi possível falar com a API de imagem: {exc}") from exc
+        if response.status_code >= 400:
+            raise SpriteStudioError(_explain(response))
+    return "Chave aceita pela API."

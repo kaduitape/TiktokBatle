@@ -192,17 +192,34 @@ o prompt dizendo apenas o que muda.
 que o modelo inventar, e a imagem enviada vira o **quadro 1** da animação.
 Nesse caso a descrição vira opcional (ajuda o modelo a entender o desenho).
 
-Para ligar, coloque a chave no `.env` do servidor e reinicie o backend:
+### A chave da API de imagem
+
+Há dois lugares para colocá-la, e a do painel tem prioridade:
+
+**No painel** (mais simples): em **Admin → Gerar sprites**, o primeiro cartão
+tem o campo para colar. O botão *Testar* confirma se a chave funciona sem
+gastar crédito — ele só lista os modelos, que é de graça. Fica guardada no
+banco deste servidor.
+
+**No `.env` do servidor** (quando você não quer a chave no banco):
 
 ```bash
 BATTLE_IMAGE_API_KEY=sk-...        # chave da OpenAI (platform.openai.com)
 BATTLE_IMAGE_MODEL=gpt-image-1     # opcional, esse é o padrão
 ```
 
-A chave existe **só como variável de ambiente**: não é gravada no banco, não
-volta para o navegador em nenhuma resposta, e o `.env` é ignorado pelo Git.
-Sem chave, a página continua abrindo e explica o que fazer — o resto do
-sistema não depende dela em nada.
+Em qualquer um dos dois, a chave **nunca volta para o navegador**: o painel
+mostra só os quatro últimos caracteres e de onde ela veio.
+
+> **Onde ela fica exposta:** a chave do painel é gravada na tabela
+> `app_secrets` em texto puro — o sistema não tem cofre de senhas. Quem tiver
+> acesso ao banco ou a um backup dele lê a chave. Em servidor compartilhado,
+> prefira o `.env`. Essa tabela é deliberadamente separada de `settings`,
+> porque `GET /api/settings/{chave}` é público e serve o placar para a Arena
+> sem login.
+
+Sem chave nenhuma, a página continua abrindo e explica o que fazer — o resto
+do sistema não depende dela em nada.
 
 Cada imagem é uma chamada à API e é cobrada à parte: 4 poses + dano + disparo =
 6 imagens na fatura (5 se você subiu a caricatura, porque aí o quadro 1 já é

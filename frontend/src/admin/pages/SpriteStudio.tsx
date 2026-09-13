@@ -3,6 +3,9 @@ import { API_BASE, api } from "../../api/client";
 
 interface Status {
   configured: boolean;
+  /** "panel" = colada aqui, "env" = variável do servidor, null = nenhuma. */
+  source: "panel" | "env" | null;
+  masked: string | null;
   model: string;
   max_poses: number;
 }
@@ -51,11 +54,51 @@ export default function SpriteStudio() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [applied, setApplied] = useState("");
+  const [keyInput, setKeyInput] = useState("");
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyMsg, setKeyMsg] = useState("");
+  const [keyErr, setKeyErr] = useState("");
 
   useEffect(() => {
     api.get<Status>("/api/sprites/status").then(setStatus).catch(() => setStatus(null));
     api.get<Character[]>("/api/characters").then(setCharacters);
   }, []);
+
+  /** Runs a key action and folds the outcome into the banner. The key itself
+   * is dropped from the form as soon as it is sent. */
+  const keyAction = async (run: () => Promise<unknown>, ok: string) => {
+    setKeyBusy(true);
+    setKeyMsg("");
+    setKeyErr("");
+    try {
+      await run();
+      setStatus(await api.get<Status>("/api/sprites/status"));
+      setKeyMsg(ok);
+    } catch (err) {
+      setKeyErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setKeyBusy(false);
+    }
+  };
+
+  const saveKey = () =>
+    keyAction(async () => {
+      await api.put("/api/sprites/key", { key: keyInput.trim() });
+      setKeyInput("");
+    }, "Chave salva.");
+
+  const testKey = () =>
+    keyAction(async () => {
+      const body = keyInput.trim() ? { key: keyInput.trim() } : undefined;
+      const res = await api.post<{ message: string }>("/api/sprites/key/test", body);
+      setKeyMsg(res.message);
+    }, "Chave aceita pela API.");
+
+  const removeKey = () =>
+    keyAction(async () => {
+      await api.del("/api/sprites/key");
+      setKeyInput("");
+    }, "Chave removida.");
 
   const uploadBase = async (file: File) => {
     setBusy(true);
@@ -145,22 +188,62 @@ export default function SpriteStudio() {
         pronta para virar animação.
       </p>
 
-      {status && !status.configured && (
-        <div className="card" style={{ borderLeft: "4px solid #e0a01b" }}>
-          <h3>Chave de imagem não configurada</h3>
-          <p style={{ fontSize: 13, lineHeight: 1.6 }}>
-            Pegue uma chave em <code>platform.openai.com</code>, coloque no arquivo{" "}
-            <code>.env</code> do servidor e reinicie o backend:
-          </p>
-          <pre style={{ background: "#0d0d16", padding: 12, borderRadius: 6, fontSize: 12, overflowX: "auto" }}>
-{`BATTLE_IMAGE_API_KEY=sk-...`}
-          </pre>
+      <div
+        className="card"
+        style={{ borderLeft: `4px solid ${status?.configured ? "#4ade80" : "#e0a01b"}` }}
+      >
+        <h3>Chave da API de imagem</h3>
+        {status?.configured ? (
           <p style={{ fontSize: 13 }}>
-            Enquanto isso você ainda pode montar folhas à mão com{" "}
-            <code>scripts/make_spritesheet.py</code> e subir em Personagens.
+            Configurada ({status.masked}) —{" "}
+            {status.source === "panel" ? "colada aqui no painel" : "vinda do .env do servidor"}.
           </p>
+        ) : (
+          <p style={{ fontSize: 13, lineHeight: 1.6 }}>
+            Pegue uma chave em <code>platform.openai.com</code> e cole abaixo. Sem ela o
+            resto do sistema funciona normalmente — só esta página fica desligada, e você
+            ainda pode montar folhas à mão com <code>scripts/make_spritesheet.py</code>.
+          </p>
+        )}
+
+        <label>{status?.configured ? "Substituir por outra chave" : "Cole a chave aqui"}</label>
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder="sk-..."
+          value={keyInput}
+          onChange={(e) => setKeyInput(e.target.value)}
+          style={{ width: "100%", fontFamily: "monospace" }}
+        />
+        <div className="row" style={{ marginTop: 10 }}>
+          <button onClick={saveKey} disabled={keyBusy || keyInput.trim().length < 8}>
+            Salvar chave
+          </button>
+          <button
+            className="secondary"
+            onClick={testKey}
+            disabled={keyBusy || (!status?.configured && keyInput.trim().length < 8)}
+          >
+            Testar
+          </button>
+          {status?.source === "panel" && (
+            <button className="secondary" onClick={removeKey} disabled={keyBusy}>
+              Remover chave salva
+            </button>
+          )}
         </div>
-      )}
+        {keyMsg && <p style={{ color: "#4ade80", fontSize: 13, marginTop: 10 }}>{keyMsg}</p>}
+        {keyErr && (
+          <p style={{ color: "#ff6b6b", fontSize: 13, marginTop: 10, whiteSpace: "pre-wrap" }}>{keyErr}</p>
+        )}
+        <p style={{ color: "#9a9ac0", fontSize: 12, marginTop: 10, lineHeight: 1.6 }}>
+          A chave é guardada no banco de dados deste servidor e nunca volta para o
+          navegador — o painel só mostra os quatro últimos caracteres. Como o sistema não
+          tem cofre de senhas, um backup do banco carrega a chave junto: se o servidor for
+          compartilhado, prefira a variável <code>BATTLE_IMAGE_API_KEY</code> no{" "}
+          <code>.env</code>. Uma chave colada aqui tem prioridade sobre a do <code>.env</code>.
+        </p>
+      </div>
 
       <div className="card">
         <h3>Personagem</h3>

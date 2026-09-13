@@ -4,10 +4,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
 from app.core.config import settings
-from app.services import sprite_studio
+from app.core.database import get_db
+from app.services import secret_store, sprite_studio
 from app.services.sprite_studio import SpriteStudioError
 
 router = APIRouter(prefix="/api/sprites", tags=["sprites"])
@@ -41,15 +43,53 @@ class GenerateOut(BaseModel):
     fire_url: str | None = None
 
 
+class KeyIn(BaseModel):
+    key: str = Field(min_length=8, max_length=400)
+
+
 @router.get("/status")
 async def studio_status(_: str = Depends(require_admin)):
-    """Whether the panel can generate. Deliberately says nothing about the key
-    itself -- not even a masked copy -- only that one is present."""
+    """Whether the panel can generate, and which key is in play. The key is
+    only ever described -- where it came from and its last four characters --
+    never returned."""
+    key, source = await sprite_studio.resolve_key()
     return {
-        "configured": sprite_studio.is_configured(),
+        "configured": bool(key),
+        "source": source,
+        "masked": secret_store.mask(key),
         "model": settings.image_model,
         "max_poses": MAX_POSES,
     }
+
+
+@router.put("/key")
+async def save_key(body: KeyIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    """Stores the key pasted in the panel. It is written to the database as
+    given -- the app has no secret storage of its own -- so a database dump
+    carries it."""
+    await secret_store.set_value(db, secret_store.IMAGE_API_KEY, body.key.strip())
+    key, source = await sprite_studio.resolve_key()
+    return {"configured": bool(key), "source": source, "masked": secret_store.mask(key)}
+
+
+@router.delete("/key")
+async def delete_key(db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    """Removes the saved key. BATTLE_IMAGE_API_KEY, if the server sets one,
+    takes over again."""
+    await secret_store.clear(db, secret_store.IMAGE_API_KEY)
+    key, source = await sprite_studio.resolve_key()
+    return {"configured": bool(key), "source": source, "masked": secret_store.mask(key)}
+
+
+@router.post("/key/test")
+async def test_key(body: KeyIn | None = None, _: str = Depends(require_admin)):
+    """Confirms a key works before anyone spends credits finding out it does
+    not. Pass a key to check one before saving, or none to check the saved one."""
+    try:
+        message = await sprite_studio.verify_key(body.key.strip() if body else None)
+    except SpriteStudioError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "message": message}
 
 
 def _read_upload(url: str) -> bytes:
