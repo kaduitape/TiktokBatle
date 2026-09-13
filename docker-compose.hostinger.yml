@@ -8,7 +8,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.battle-arena.loadbalancer.server.port=80"
-      - "traefik.http.routers.battle-arena.rule=Host(`${BATTLE_DOMAIN:-arena.navit.com.br}`)"
+      # This is the public hostname for this Hostinger stack. Keep it explicit
+      # so a stale value in the VPS .env cannot register a router for a
+      # different hostname while arena.navit.com.br responds with Traefik 404.
+      - "traefik.http.routers.battle-arena.rule=Host(`arena.navit.com.br`)"
       - "traefik.http.routers.battle-arena.entrypoints=${TRAEFIK_HTTPS_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.battle-arena.tls=true"
       - "traefik.http.routers.battle-arena.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}"
