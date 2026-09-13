@@ -20,6 +20,13 @@ export interface Fighter {
 }
 
 export interface PvpAvatarOptions {
+  /** Lower = falls faster. The default drifts down like a balloon, which reads
+   * well when a handful of fighters trickle in; a packed arena needs them on
+   * the floor quickly so they stop covering the scoreboard. */
+  frictionAir?: number;
+  /** Where a dropping-in fighter appears. Defaults to just above the screen;
+   * a scene with a tall HUD sets it lower so arrivals never cross the bars. */
+  spawnY?: number;
   /** Off keeps every avatar the same size: tank war fields uniform soldiers
    * whose bar drains, while PvP grows its fighters with their power. */
   scaleWithPower?: boolean;
@@ -39,6 +46,8 @@ export class PvpAvatarManager {
     this.options = {
       scaleWithPower: options.scaleWithPower ?? true,
       showPowerLabel: options.showPowerLabel ?? true,
+      frictionAir: options.frictionAir ?? 0.015,
+      spawnY: options.spawnY ?? SPAWN_TOP_Y,
     };
   }
 
@@ -74,13 +83,13 @@ export class PvpAvatarManager {
     const diameter = this.diameterFor(power);
     const zone = player.team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
     const x = Phaser.Math.Between(zone.xMin + diameter, zone.xMax - diameter);
-    const y = dropIn ? SPAWN_TOP_Y : Phaser.Math.Between(CEILING_Y, FLOOR_Y - 200);
+    const y = dropIn ? this.options.spawnY : Phaser.Math.Between(CEILING_Y, FLOOR_Y - 200);
 
     const sprite = this.scene.matter.add.sprite(x, y, textureKey, undefined, {
       shape: { type: "circle", radius: diameter / 2 },
       restitution: 0.35,
       friction: 0.2,
-      frictionAir: 0.015,
+      frictionAir: this.options.frictionAir,
       density: 0.002,
     });
     sprite.setDisplaySize(diameter, diameter);

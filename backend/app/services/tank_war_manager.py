@@ -2,7 +2,7 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Gift, Player
@@ -53,6 +53,82 @@ class TankWarManager:
         return "B" if team == "A" else "A"
 
     @staticmethod
+    def random_team() -> str:
+        """A viewer who sends a gift without ever picking a side is dropped
+        into one at random, so the gift still counts for somebody."""
+        return random.choice(("A", "B"))
+
+    @staticmethod
+    def field_capacity(config: dict[str, Any]) -> int:
+        return max(1, int(config.get("max_field_players", 100)))
+
+    @staticmethod
+    async def count_on_field(db: AsyncSession, session_id: str) -> int:
+        """Fighters actually standing in the arena, both sides together."""
+        return (
+            await db.execute(
+                select(func.count())
+                .select_from(Player)
+                .where(
+                    Player.session_id == session_id,
+                    Player.queued.is_(False),
+                    Player.eliminated.is_(False),
+                    Player.power > 0,
+                )
+            )
+        ).scalar_one()
+
+    @staticmethod
+    async def field_is_full(db: AsyncSession, session_id: str, config: dict[str, Any]) -> bool:
+        return await TankWarManager.count_on_field(db, session_id) >= TankWarManager.field_capacity(config)
+
+    @staticmethod
+    async def next_in_queue(db: AsyncSession, session_id: str) -> Player | None:
+        """First in, first on the field."""
+        return (
+            await db.execute(
+                select(Player)
+                .where(Player.session_id == session_id, Player.queued.is_(True))
+                .order_by(Player.created_at.asc())
+                .limit(1)
+            )
+        ).scalars().first()
+
+    @staticmethod
+    async def queue_position(db: AsyncSession, session_id: str, player: Player) -> int:
+        """Where somebody stands in line, 1-based, so the arena can tell them."""
+        ahead = (
+            await db.execute(
+                select(func.count())
+                .select_from(Player)
+                .where(
+                    Player.session_id == session_id,
+                    Player.queued.is_(True),
+                    Player.created_at < player.created_at,
+                )
+            )
+        ).scalar_one()
+        return int(ahead) + 1
+
+    @staticmethod
+    async def promote_from_queue(
+        db: AsyncSession, session_id: str, config: dict[str, Any]
+    ) -> Player | None:
+        """Walks the next person in line onto the field, at full health.
+        Called when a slot opens, i.e. when somebody is eliminated."""
+        if await TankWarManager.field_is_full(db, session_id, config):
+            return None
+        player = await TankWarManager.next_in_queue(db, session_id)
+        if not player:
+            return None
+        starting = TankWarManager.soldier_hp(config)
+        player.queued = False
+        player.eliminated = False
+        player.power = starting
+        player.peak_power = max(player.peak_power, starting)
+        return player
+
+    @staticmethod
     def boss_damage(gift: Gift, quantity: int, config: dict[str, Any]) -> float:
         """The gift's coin price is the shot's power, so an expensive gift
         moves the boss's bar far more than a cheap one."""
@@ -75,6 +151,7 @@ class TankWarManager:
                     .where(
                         Player.session_id == session_id,
                         Player.team == team,
+                        Player.queued.is_(False),
                         Player.eliminated.is_(False),
                         Player.power > 0,
                     )
@@ -107,13 +184,18 @@ class TankWarManager:
 
     @staticmethod
     def army_totals(players: list[Player]) -> dict[str, dict[str, float]]:
-        totals = {"A": {"alive": 0, "recruited": 0}, "B": {"alive": 0, "recruited": 0}}
+        totals = {
+            "A": {"alive": 0, "recruited": 0, "queued": 0},
+            "B": {"alive": 0, "recruited": 0, "queued": 0},
+        }
         for p in players:
             side = totals.get(p.team)
             if side is None:
                 continue
             side["recruited"] += 1
-            if not p.eliminated and p.power > 0:
+            if p.queued:
+                side["queued"] += 1
+            elif not p.eliminated and p.power > 0:
                 side["alive"] += 1
         return totals
 

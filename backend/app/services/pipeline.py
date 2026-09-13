@@ -383,26 +383,50 @@ class GamePipeline:
         switched = not created and player.team != team
         player.team = team
 
+        queued = False
         if created or player.eliminated or player.power <= 0:
-            starting = (
-                tank_war_manager.soldier_hp(config)
-                if battle.mode == "tank_war"
-                else team_battle_manager.starting_power(
-                    await settings_service.get(db, "team_battle")
+            if battle.mode == "tank_war" and await tank_war_manager.field_is_full(
+                db, session.id, config
+            ):
+                # Arena full: they are enlisted and hold their place in line.
+                queued = True
+                player.queued = True
+                player.power = 0.0
+                player.eliminated = False
+            else:
+                starting = (
+                    tank_war_manager.soldier_hp(config)
+                    if battle.mode == "tank_war"
+                    else team_battle_manager.starting_power(
+                        await settings_service.get(db, "team_battle")
+                    )
                 )
-            )
-            player.power = starting
-            player.peak_power = starting
-            player.eliminated = False
+                player.queued = False
+                player.power = starting
+                player.peak_power = starting
+                player.eliminated = False
 
         player.last_interaction = datetime.now(timezone.utc)
         await db.flush()
+
+        # The arena keeps a live troop count, so every enlistment carries the
+        # totals -- otherwise the counter only moved when somebody fired.
+        roster = (
+            (await db.execute(select(Player).where(Player.session_id == session.id)))
+            .scalars()
+            .all()
+        )
 
         return {
             "type": "player_enlisted",
             "session_id": session.id,
             "player": self._player_payload(player, created),
             "switched": switched,
+            "armies": tank_war_manager.army_totals(roster),
+            "queued": queued or bool(player.queued),
+            "queue_position": await tank_war_manager.queue_position(db, session.id, player)
+            if player.queued
+            else 0,
         }
 
     async def _handle_gift_tank_war(
@@ -419,8 +443,9 @@ class GamePipeline:
         action = gift_rule_engine.resolve(gift, quantity, combo_count, combo_tier)
         config = await settings_service.get(db, "tank_war")
 
-        # A viewer who already enlisted by comment keeps that side; anyone else
-        # is placed by the side the gift itself fights for.
+        # A viewer who already enlisted by comment keeps that side. Somebody who
+        # sent a gift without ever typing A or B is dropped into a random team,
+        # so the gift still fights for somebody instead of being wasted.
         existing = (
             await db.execute(
                 select(Player).where(
@@ -428,7 +453,7 @@ class GamePipeline:
                 )
             )
         ).scalar_one_or_none()
-        team = existing.team if existing else action.attacker_team
+        team = existing.team if existing else tank_war_manager.random_team()
 
         player, created = await avatar_service.get_or_create_player(
             db,
@@ -440,11 +465,19 @@ class GamePipeline:
             avatar_url=event.user.avatar,
             team=team,
         )
-        if created or player.power <= 0:
-            starting = tank_war_manager.soldier_hp(config)
-            player.power = starting
-            player.peak_power = starting
-            player.eliminated = False
+        if created or player.eliminated or player.power <= 0:
+            # The field is capped, so a newcomer (or somebody coming back from
+            # elimination) only walks in if there is room; otherwise they wait.
+            if await tank_war_manager.field_is_full(db, session.id, config):
+                player.queued = True
+                player.power = 0.0
+                player.eliminated = False
+            else:
+                starting = tank_war_manager.soldier_hp(config)
+                player.queued = False
+                player.power = starting
+                player.peak_power = starting
+                player.eliminated = False
 
         # Everybody fires at the enemy boss -- never at each other. The boss's
         # health pool is the same side_a_xp/side_b_xp the classic mode uses, so
@@ -494,6 +527,10 @@ class GamePipeline:
                 "animation_key": gift.animation_key,
                 "sound_key": gift.sound_key,
                 "coins": gift.coins,
+                # In this mode every gift does the same thing -- hit the enemy
+                # side. All that separates them is how hard, and whether the
+                # gift is a special, which is the only visual distinction.
+                "is_special": gift.action_type == "special",
             },
             "quantity": quantity,
             "combo": {
@@ -533,6 +570,11 @@ class GamePipeline:
 
             hit = tank_war_manager.resolve_bomb(target, config)
 
+            # An elimination frees a slot, so the next person in line walks in.
+            promoted = None
+            if hit.eliminated:
+                promoted = await tank_war_manager.promote_from_queue(db, session_id, config)
+
             db.add(
                 BattleEvent(
                     session_id=session_id,
@@ -563,6 +605,7 @@ class GamePipeline:
                     "eliminated": hit.eliminated,
                 },
                 "armies": tank_war_manager.army_totals(players),
+                "promoted": self._player_payload(promoted, True) if promoted else None,
             }
 
         await connection_manager.broadcast(session_id, message)
@@ -582,6 +625,7 @@ class GamePipeline:
             "level": player.level,
             "kills": player.kills,
             "eliminated": player.eliminated,
+            "queued": player.queued,
         }
 
     async def _resolve_gift(self, db: AsyncSession, event: LiveEvent):

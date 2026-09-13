@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { api } from "../../api/client";
 import type {
   ArenaMessage,
   ArmyTotals,
@@ -28,7 +29,21 @@ import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
-import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FLOOR_Y, XP_BAR_Y } from "./constants";
+import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FEED_Y, FLOOR_Y, XP_BAR_Y } from "./constants";
+
+/** Just below the five feed lines, out of the way of the action. */
+const POWERS_LEGEND_Y = FEED_Y + 5 * 26 + 6;
+
+/** Below the boss bars and the join hints, so arrivals never cross the HUD. */
+const SOLDIER_SPAWN_Y = XP_BAR_Y + 140;
+
+interface GiftSummary {
+  name: string;
+  icon: string;
+  coins: number;
+  action_type: string;
+  active?: boolean;
+}
 
 const BAR_WIDTH = ARENA_WIDTH / 2 - 40;
 const GUNNER_TARGET_HEIGHT = 560;
@@ -74,6 +89,11 @@ export default class TankWarScene extends Phaser.Scene {
   private teamColors: Record<"A" | "B", string> = { A: "#e01b24", B: "#2a7d2e" };
   private teamNames: Record<"A" | "B", string> = { A: "TIME A", B: "TIME B" };
   private armyLabels: Partial<Record<"A" | "B", Phaser.GameObjects.Text>> = {};
+  /** The two calls to action at the top of each half, so viewers always know
+   * which word puts them on which side. */
+  private joinHints: Partial<Record<"A" | "B", Phaser.GameObjects.Text>> = {};
+  private keywords: Record<"A" | "B", string> = { A: "A", B: "B" };
+  private damagePerCoin = 500;
   private victoryShown = false;
 
   constructor() {
@@ -98,7 +118,14 @@ export default class TankWarScene extends Phaser.Scene {
     divider.lineStyle(4, 0xffffff, 0.25);
     for (let y = CEILING_Y; y < FLOOR_Y; y += 30) divider.lineBetween(CENTER_X, y, CENTER_X, y + 16);
 
-    this.soldiers = new PvpAvatarManager(this, { scaleWithPower: false, showPowerLabel: false });
+    this.soldiers = new PvpAvatarManager(this, {
+      scaleWithPower: false,
+      showPowerLabel: false,
+      // A packed arena needs arrivals on the floor quickly, and starting below
+      // the scoreboard keeps them from raining across the boss bars.
+      frictionAir: 0.002,
+      spawnY: SOLDIER_SPAWN_Y,
+    });
     this.effects = new EffectsManager(this);
     this.missiles = new MissileManager(this, this.effects);
     this.combos = new ComboManager(this.effects);
@@ -108,6 +135,8 @@ export default class TankWarScene extends Phaser.Scene {
     this.bossBars = new XPManager(this);
 
     this.buildArmyLabels();
+    this.buildJoinHints();
+    void this.loadLegends();
 
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();
@@ -121,6 +150,86 @@ export default class TankWarScene extends Phaser.Scene {
 
   update() {
     this.soldiers.syncOverlays();
+  }
+
+  /** "DIGITE A" on the left, "DIGITE B" on the right: the single instruction
+   * a viewer needs to join, kept where the eye lands first. */
+  private buildJoinHints() {
+    (["A", "B"] as const).forEach((side) => {
+      const x = side === "A" ? ARENA_WIDTH * 0.25 : ARENA_WIDTH * 0.75;
+      this.joinHints[side] = this.add
+        .text(x, XP_BAR_Y + 78, "", {
+          fontFamily: "Segoe UI, sans-serif",
+          fontSize: "30px",
+          fontStyle: "bold",
+          color: "#ffffff",
+          align: "center",
+          stroke: "#000000",
+          strokeThickness: 5,
+        })
+        .setOrigin(0.5)
+        .setDepth(92);
+    });
+    this.refreshJoinHints();
+  }
+
+  private refreshJoinHints() {
+    const wording = {
+      A: `DIGITE ${this.keywords.A}\nentrar no time da esquerda`,
+      B: `DIGITE ${this.keywords.B}\nentrar no time da direita`,
+    } as const;
+    (["A", "B"] as const).forEach((side) => this.joinHints[side]?.setText(wording[side]));
+  }
+
+  /** Reads the two things the arena cannot know on its own: which words
+   * enlist a viewer, and what each gift is worth. Both are admin settings, so
+   * they are fetched rather than hardcoded. */
+  private async loadLegends() {
+    try {
+      const config = await api.get<Record<string, unknown>>("/api/settings/tank_war");
+      this.keywords = {
+        A: String(config.team_a_keyword ?? "A").toUpperCase(),
+        B: String(config.team_b_keyword ?? "B").toUpperCase(),
+      };
+      this.damagePerCoin = Number(config.boss_damage_per_coin ?? 500);
+      this.refreshJoinHints();
+    } catch {
+      /* keep the defaults -- the hints still read correctly */
+    }
+
+    try {
+      const gifts = await api.get<GiftSummary[]>("/api/gifts");
+      this.buildPowersLegend(gifts.filter((g) => g.active !== false));
+    } catch {
+      /* no legend rather than a broken one */
+    }
+  }
+
+  /** A quiet line under the feed listing what each gift is worth. Deliberately
+   * small and dim: it is a reference, not part of the action. */
+  private buildPowersLegend(gifts: GiftSummary[]) {
+    if (!gifts.length) return;
+    const line = [...gifts]
+      .sort((a, b) => (a.coins || 0) - (b.coins || 0))
+      .map((g) => {
+        const damage = Math.round((g.coins || 1) * this.damagePerCoin).toLocaleString("pt-BR");
+        const star = g.action_type === "special" ? "★" : "";
+        return `${g.icon}${star} ${g.name} ${damage}`;
+      })
+      .join("   ");
+
+    this.add
+      .text(24, POWERS_LEGEND_Y, `PODERES  ·  ${line}   ·   ★ especial`, {
+        fontFamily: "Segoe UI, sans-serif",
+        fontSize: "15px",
+        color: "#cfcfe6",
+        stroke: "#000000",
+        strokeThickness: 3,
+        wordWrap: { width: ARENA_WIDTH - 48 },
+        lineSpacing: 2,
+      })
+      .setAlpha(0.62)
+      .setDepth(86);
   }
 
   /** The boss health bars come from the shared XPManager; this is just the
@@ -198,12 +307,17 @@ export default class TankWarScene extends Phaser.Scene {
     if (!this.ranking) this.ranking = new RankingManager(this, msg.session_id);
 
     for (const player of msg.players) {
-      if (player.eliminated) continue;
+      // Queued fighters are enlisted but not on the field yet.
+      if (player.eliminated || player.queued) continue;
       this.soldiers.spawnOrGet(player, this.teamColors[player.team], false);
     }
+    const queued = { A: 0, B: 0 };
+    msg.players.forEach((p) => {
+      if (p.queued) queued[p.team] += 1;
+    });
     this.updateArmies({
-      A: { alive: msg.teams?.A.alive ?? 0, recruited: msg.teams?.A.fighters ?? 0 },
-      B: { alive: msg.teams?.B.alive ?? 0, recruited: msg.teams?.B.fighters ?? 0 },
+      A: { alive: msg.teams?.A.alive ?? 0, recruited: msg.teams?.A.fighters ?? 0, queued: queued.A },
+      B: { alive: msg.teams?.B.alive ?? 0, recruited: msg.teams?.B.fighters ?? 0, queued: queued.B },
     });
   }
 
@@ -361,8 +475,18 @@ export default class TankWarScene extends Phaser.Scene {
 
   private handleEnlist(msg: PlayerEnlistedMessage) {
     const player = msg.player as PvpPlayerPayload;
+    const name = (player.nickname || player.username).toUpperCase();
+    if (msg.armies) this.updateArmies(msg.armies);
+
+    if (msg.queued || player.queued) {
+      // Enlisted with the field full: announced, but not drawn until a slot
+      // opens, so the arena never shows more fighters than it holds.
+      const place = msg.queue_position ? ` (${msg.queue_position}º)` : "";
+      this.effects.joinToast(`${name} ESTÁ NA FILA${place}`, ARENA_WIDTH / 2, 700);
+      return;
+    }
+
     this.soldiers.spawnOrGet(player, this.teamColors[player.team], true).then(() => {
-      const name = (player.nickname || player.username).toUpperCase();
       this.effects.joinToast(`${name} ENTROU NO ${this.teamNames[player.team]}`, ARENA_WIDTH / 2, 700);
     });
   }
@@ -383,8 +507,9 @@ export default class TankWarScene extends Phaser.Scene {
 
     if (gunner) this.aimAndRecoil(gunner, impact.y, true);
 
-    // Coin price decides how heavy the shell reads on screen.
-    const heavy = msg.gift.coins >= 100;
+    // Every gift does the same thing here, so the shell only distinguishes the
+    // two things that actually differ: a special, and how much it costs.
+    const heavy = msg.gift.is_special || msg.gift.coins >= 100;
     this.missiles.fireShell(muzzle.x, muzzle.y, impact.x, impact.y, heavy, () => {
       this.bossBars.update(msg.xp.a, msg.xp.b);
       this.effects.floatingNumber(impact.x, impact.y - 60, `-${Math.round(msg.damage)}`, "#ff5b5b");
@@ -393,6 +518,15 @@ export default class TankWarScene extends Phaser.Scene {
 
     this.audio.missile();
     this.effects.shake(heavy ? 0.012 : 0.006, 180);
+    if (msg.gift.is_special) {
+      this.effects.bannerText(
+        `${msg.gift.icon} ${shooterName} — ESPECIAL!`,
+        msg.shooter_side === "A" ? ARENA_WIDTH * 0.25 : ARENA_WIDTH * 0.75,
+        640,
+        "#ffd34d",
+        30
+      );
+    }
 
     if (msg.combo.count >= 10) {
       this.combos.announce(shooterName, msg.combo.count, msg.combo.tier_label);
@@ -458,6 +592,14 @@ export default class TankWarScene extends Phaser.Scene {
 
         this.soldiers.setPower(msg.victim.user_id, msg.victim.power);
         this.effects.floatingNumber(to.x, to.y - 34, `-${Math.round(msg.victim.damage)}`, "#ff3b3b");
+        if (msg.promoted) {
+          // The slot this bomb opened is taken immediately by the next in line.
+          const next = msg.promoted;
+          this.soldiers.spawnOrGet(next, this.teamColors[next.team], true).then(() => {
+            const name = (next.nickname || next.username).toUpperCase();
+            this.effects.joinToast(`${name} ENTROU NO LUGAR`, ARENA_WIDTH / 2, 760);
+          });
+        }
         if (msg.victim.eliminated) {
           this.soldiers.eliminate(msg.victim.user_id);
           // Both bosses can bomb on the same tick, so each banner goes over
@@ -493,7 +635,9 @@ export default class TankWarScene extends Phaser.Scene {
 
   private updateArmies(armies: ArmyTotals) {
     (["A", "B"] as const).forEach((side) => {
-      this.armyLabels[side]?.setText(`🪖 ${armies[side].alive} / ${armies[side].recruited}`);
+      const waiting = armies[side].queued || 0;
+      const queue = waiting > 0 ? `   ⏳ ${waiting} na fila` : "";
+      this.armyLabels[side]?.setText(`🪖 ${armies[side].alive} / ${armies[side].recruited}${queue}`);
     });
   }
 

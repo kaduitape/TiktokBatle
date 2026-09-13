@@ -116,9 +116,30 @@ export class EffectsManager {
     });
   }
 
+  /** Joins arrive in bursts, so each toast is stacked below the last instead
+   * of being printed on top of it. The slot frees up as the toast fades. */
+  private toastSlots: boolean[] = [];
+
+  /** A busy live joins faster than anyone can read. Past this the extra
+   * arrivals are simply not announced -- the troop counter already shows them,
+   * and a wall of toasts would cover the fight. */
+  private static readonly MAX_TOASTS = 4;
+
+  private takeToastSlot(): number {
+    for (let i = 0; i < EffectsManager.MAX_TOASTS; i += 1) {
+      if (!this.toastSlots[i]) {
+        this.toastSlots[i] = true;
+        return i;
+      }
+    }
+    return -1;
+  }
+
   joinToast(text: string, x: number, y: number) {
+    const slot = this.takeToastSlot();
+    if (slot === -1) return;
     const label = this.scene.add
-      .text(x, y, text, {
+      .text(x, y + slot * 34, text, {
         fontFamily: "Segoe UI, sans-serif",
         fontSize: "26px",
         fontStyle: "bold",
@@ -136,6 +157,7 @@ export class EffectsManager {
       duration: 200,
       onComplete: () => {
         this.scene.time.delayedCall(1200, () => {
+          this.toastSlots[slot] = false;
           this.scene.tweens.add({
             targets: label,
             alpha: 0,

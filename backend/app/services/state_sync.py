@@ -77,6 +77,7 @@ async def build_state_sync(session_id: str) -> dict | None:
                     "level": p.level,
                     "kills": p.kills,
                     "eliminated": p.eliminated,
+                    "queued": p.queued,
                 }
                 for p in players
             ],

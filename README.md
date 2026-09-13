@@ -65,30 +65,41 @@ curl -X PUT localhost:8000/api/settings/team_battle \
        "elimination_enabled":true,"respawn_power":0}'
 ```
 
-### 🪖 Guerra de Tanques
+### 🪖 Guerra de Tanques (Eleições 2026)
 
 Os **dois charges são os chefões** e os espectadores são as tropas que
 derrubam o chefão adversário.
 
-- **Entrada pelo chat**: quem comenta `P` entra no time do Lado A, quem
-  comenta `B` entra no Lado B. As palavras-chave são configuráveis, e a
-  mensagem tem que ser só a palavra — conversa normal no chat não recruta
-  ninguém por acidente. Comentar a outra letra troca de lado.
-- **Chefões com mais de 1 milhão de vida**: Lula e Bolsonaro entram com
-  **1.500.000 de vida** cada, então a partida é uma guerra de desgaste do
-  time inteiro, não de um presente sortudo.
-- **Todo mundo atira só no chefão inimigo**: cada presente faz o tanque do
-  espectador girar, recuar no tranco e disparar um obus **no chefão do time
-  adversário**. Espectador nunca atira em espectador.
-- **Quanto mais moedas, mais forte**: o dano no chefão é o preço do presente
-  em moedas × quantidade × `boss_damage_per_coin` (500 por padrão).
-- **Os chefões revidam com bombas**: a cada ~12 segundos cada chefão lança
-  uma bomba num **espectador ativo do time adversário** — o alvo sai dos 10
-  mais recentes a interagir, a bomba tira 150 de dano e derruba um soldado
-  de vida cheia, que **sai do jogo** com explosão.
-- **Charges fixos, mas vivos**: ficam parados no lugar, respirando,
-  balançando de leve e dando um soco no ar de vez em quando; ao atirar,
-  giram na direção do alvo e recuam, e tremem quando tomam um obus.
+- **Entrada pelo chat**: quem comenta `A` entra no time da **esquerda**, quem
+  comenta `B` entra no time da **direita**. A arena mostra as duas instruções
+  no alto de cada metade, então o espectador nunca precisa perguntar. As
+  palavras-chave são configuráveis, e a mensagem tem que ser só a palavra —
+  conversa normal no chat não recruta ninguém por acidente. Comentar a outra
+  letra troca de lado.
+- **Quem presenteia sem ter escolhido lado cai num time sorteado**, para o
+  presente valer para alguém em vez de se perder.
+- **Chefões com mais de 1 milhão de vida**: entram com **1.500.000** cada,
+  então a partida é uma guerra de desgaste do time inteiro.
+- **Todo presente faz a mesma coisa: bater no time adversário.** A única
+  diferença entre eles é **quanto de dano** (o preço em moedas × quantidade ×
+  `boss_damage_per_coin`) e se é **especial** — os especiais anunciam o nome de
+  quem mandou e sacodem a tela mais forte. Não existe presente de cura neste
+  modo.
+- **No máximo 100 em campo, somando os dois times.** Com a arena lotada, quem
+  chega **fica na fila** (é anunciado com a posição, mas não aparece ainda) e
+  **entra assim que alguém é eliminado** — a vaga aberta é preenchida na hora,
+  por ordem de chegada. Quem está na fila não pode ser bombardeado, mas os
+  presentes dele continuam batendo no chefão inimigo.
+- **Os chefões revidam com bombas**: a cada ~12 segundos cada chefão lança uma
+  bomba num espectador ativo do time adversário — o alvo sai dos 10 mais
+  recentes a interagir, a bomba tira 150 de dano e derruba um soldado de vida
+  cheia, que **sai do jogo** com explosão.
+- **Charges fixos, mas vivos**: respiram, balançam e dão um soco no ar; ao
+  atirar giram na direção do alvo e recuam, e tremem quando tomam um obus.
+- **Legenda dos poderes**: uma linha discreta no rodapé, abaixo do feed, lista
+  cada presente com o dano que causa (★ marca os especiais). Ela é montada a
+  partir dos presentes cadastrados, então muda sozinha quando você mexe em
+  **Admin → Presentes**.
 
 Com os valores padrão (chefão com 1.500.000 de vida, 500 de dano por moeda):
 
@@ -98,10 +109,10 @@ Com os valores padrão (chefão com 1.500.000 de vida, 500 de dano por moeda):
 | 🌸 Flor Aberta | 10 | 5.000 | 0,3% |
 | 🍩 Rosquinha | 30 | 15.000 | 1% |
 | 🫶 Mãos Coração | 100 | 50.000 | 3,3% |
-| ☄️ Meteoro | 500 | 250.000 | 16,7% |
+| ☄️ Meteoro ★ | 500 | 250.000 | 16,7% |
 
 Ajuste tudo na chave `tank_war` de **Settings** (`team_a_keyword`,
-`team_b_keyword`, `soldier_hp`, `boss_damage_per_coin`,
+`team_b_keyword`, `max_field_players`, `soldier_hp`, `boss_damage_per_coin`,
 `bomb_interval_seconds`, `bomb_damage`, `bomb_active_pool`) e o preço em
 moedas de cada presente em **Admin → Presentes**.
 

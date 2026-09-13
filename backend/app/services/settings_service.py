@@ -34,8 +34,11 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     # 1-coin rose does 500, a 30-coin gift 15k, a 500-coin gift 250k -- so the
     # boss falls to sustained team effort, not to one whale.
     "tank_war": {
-        "team_a_keyword": "P",
+        "team_a_keyword": "A",
         "team_b_keyword": "B",
+        # Fighters on the field at once, both sides together. Past this the
+        # next arrivals wait in line and walk in as others are eliminated.
+        "max_field_players": 100,
         "soldier_hp": 150,
         "boss_damage_per_coin": 500,
         # How often each boss lobs a bomb at the other side, and how hard it

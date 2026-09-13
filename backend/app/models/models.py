@@ -234,6 +234,11 @@ class Player(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)
     kills: Mapped[int] = mapped_column(Integer, default=0)
     eliminated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Waiting for a slot: the arena holds a fixed number of fighters, so
+    # whoever arrives with the field full is kept here and walks in when
+    # somebody is eliminated. A queued player is not drawn and cannot be
+    # bombed, but their gifts still land on the enemy.
+    queued: Mapped[bool] = mapped_column(Boolean, default=False)
 
     last_interaction: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

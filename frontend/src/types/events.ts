@@ -37,6 +37,8 @@ export interface PvpPlayerPayload extends PlayerPayload {
   level: number;
   kills: number;
   eliminated: boolean;
+  /** Enlisted but waiting for a slot: not drawn, and cannot be bombed. */
+  queued?: boolean;
 }
 
 export interface TeamTotals {
@@ -47,8 +49,8 @@ export interface TeamTotals {
 export type BattleMode = "character" | "team_pvp" | "tank_war";
 
 export interface ArmyTotals {
-  A: { alive: number; recruited: number };
-  B: { alive: number; recruited: number };
+  A: { alive: number; recruited: number; queued: number };
+  B: { alive: number; recruited: number; queued: number };
 }
 
 export interface StateSyncMessage {
@@ -160,6 +162,11 @@ export interface PlayerEnlistedMessage {
   session_id: string;
   player: PvpPlayerPayload;
   switched: boolean;
+  /** Live troop totals, so the counter moves as people join. */
+  armies?: ArmyTotals;
+  /** Arena was full: they are enlisted but waiting their turn. */
+  queued?: boolean;
+  queue_position?: number;
 }
 
 export interface TankShotMessage {
@@ -173,6 +180,8 @@ export interface TankShotMessage {
     animation_key: string;
     sound_key: string;
     coins: number;
+    /** The only distinction between gifts in this mode besides raw damage. */
+    is_special: boolean;
   };
   quantity: number;
   combo: { count: number; tier_label: string | null; tier_animation: string | null };
@@ -199,6 +208,8 @@ export interface BossBombMessage {
     eliminated: boolean;
   };
   armies: ArmyTotals;
+  /** Whoever walked in from the queue to fill the slot this bomb opened. */
+  promoted: PvpPlayerPayload | null;
 }
 
 export type ArenaMessage =
