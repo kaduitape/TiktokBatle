@@ -58,6 +58,28 @@ class Character(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AppSecret(Base):
+    """Credentials pasted into the admin panel.
+
+    Deliberately NOT the `settings` table: GET /api/settings/{key} is public
+    (the arena reads game balance from it without logging in), so anything
+    stored there is readable by anyone who can reach the server. These rows are
+    only ever reachable through admin-authenticated endpoints, and are never
+    returned in full -- callers get a masked preview.
+
+    The value is stored as written. The app has no key management of its own,
+    so treat a database dump or backup as carrying the credential.
+    """
+
+    __tablename__ = "app_secrets"
+
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Battle(Base):
     """A configurable template: 'Side A vs Side B'. Admin picks which
     Character fills each side -- no side is ever tied to a specific name."""
