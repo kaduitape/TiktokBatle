@@ -50,6 +50,14 @@ jobs:
                 files="$files -f $f"
               done
             fi
+            # Passing -f at all turns off the override file Compose would
+            # otherwise load by itself. That file is not in Git -- it is where
+            # per-server configuration lives -- so dropping it silently would
+            # undo whatever the server was configured with.
+            if [ -f docker-compose.override.yml ]; then
+              files="$files -f docker-compose.override.yml"
+              echo "incluindo docker-compose.override.yml"
+            fi
 
             echo "overlay escolhido: ${overlay}"
             echo "compose: ${files}"
