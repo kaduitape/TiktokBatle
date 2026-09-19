@@ -12,6 +12,7 @@ from app.api import (
     characters,
     gifts,
     live,
+    live_gifts,
     music,
     players,
     settings_routes,
@@ -82,6 +83,7 @@ app.include_router(players.router)
 app.include_router(simulator.router)
 app.include_router(sprites.router)
 app.include_router(live.router)
+app.include_router(live_gifts.router)
 app.include_router(music.router)
 app.include_router(settings_routes.router)
 app.include_router(ws_routes.router)

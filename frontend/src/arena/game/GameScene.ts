@@ -322,29 +322,34 @@ export default class GameScene extends Phaser.Scene {
       if (msg.xp_delta !== 0) showNumber();
     };
 
-    if (msg.gift.action_type === "special" && msg.gift.animation_key === "meteor") {
+    // The animation is chosen by animation_key alone. It used to also require
+    // action_type === "special", which meant a gift configured in the panel as
+    // e.g. "Meteoro" fired a plain shot unless its action happened to be
+    // "special" too -- a trap for anyone configuring gifts from the catalogue.
+    const anim = msg.gift.animation_key;
+    if (anim === "meteor") {
       this.effects.bannerText(`☄️ ${displayName} ATIVOU METEORO!`, target.x, target.y - 320, "#ff9955", 34);
       this.missiles.meteor(target.x, target.y, showNumberIfAny);
-    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "lightning") {
+    } else if (anim === "lightning") {
       this.missiles.lightning(target.x, target.y, showNumberIfAny);
-    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "airstrike") {
+    } else if (anim === "airstrike") {
       this.missiles.airstrike(target.y - 320, target.x, showNumberIfAny);
-    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "hurricane") {
+    } else if (anim === "hurricane") {
       this.effects.bannerText(`🌪️ FURACÃO — ${displayName}`, target.x, 480, "#8fd9ff", 38);
       this.avatarManager.spinAll(0.28);
       this.time.delayedCall(3000, () => this.avatarManager.spinAll(0));
-    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "shockwave") {
+    } else if (anim === "shockwave" || anim === "explosion" || anim === "bomb") {
       this.effects.bannerText(`💥 ONDA DE CHOQUE`, target.x, 480, "#ffcc66", 38);
       this.effects.flash(target.x, target.y, 140, 0xffffff, 0.7);
       this.effects.shake(0.02, 250);
       this.avatarManager.applyRadialForce(target.x, target.y, 0.07, 520);
-    } else if (msg.gift.action_type === "special" && msg.gift.animation_key === "giant") {
+    } else if (anim === "giant") {
       this.effects.bannerText(`${displayName} FICOU GIGANTE!`, target.x, 480, "#ffd700", 34);
       this.avatarManager.makeGiant(msg.player.user_id);
     } else if (isHeal) {
       const big = msg.gift.action_type === "super_heal" || tier === "special" || tier === "bazooka";
       this.heals.fireHeal(from.x, from.y, target.x, target.y, big, showNumber);
-    } else if (msg.gift.action_type === "missile" || tier === "bazooka" || tier === "special") {
+    } else if (anim === "missile" || msg.gift.action_type === "missile" || tier === "bazooka" || tier === "special") {
       this.missiles.fireMissile(from.x, from.y, target.x, target.y, tier === "special", showNumber);
     } else if (tier === "burst" || tier === "minigun") {
       this.projectiles.fireBurst(from.x, from.y, target.x, target.y, msg.combo.count, () => {});

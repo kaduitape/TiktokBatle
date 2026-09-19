@@ -13,7 +13,6 @@ from app.models.models import (
     BattleSession,
     Character,
     Player,
-    TikTokGiftObservation,
 )
 from app.schemas.schemas import LiveEvent
 from app.services.avatar_service import avatar_service
@@ -21,11 +20,13 @@ from app.services.battle_manager import battle_manager
 from app.services.combo_manager import combo_manager
 from app.services.event_normalizer import event_normalizer
 from app.services.gift_cache import gift_cache
+from app.services.gift_capture_service import gift_capture_service
 from app.services.gift_rule_engine import gift_rule_engine
 from app.services.settings_service import settings_service
 from app.services.tank_war_manager import tank_war_manager
 from app.services.team_battle_manager import team_battle_manager
 from app.services.xp_manager import xp_manager
+from app.ws.admin_channel import admin_channel
 from app.ws.connection_manager import connection_manager
 
 logger = logging.getLogger("pipeline")
@@ -58,6 +59,28 @@ class GamePipeline:
             sudden_death_triggered = battle_manager.check_sudden_death(session, battle)
 
             if event.type == "gift_received":
+                # Capture comes first and runs for EVERY gift, configured or
+                # not: the catalogue is how a gift stops needing a code change.
+                # It also returns how much of a streak is genuinely new, which
+                # is the quantity the rest of the pipeline must act on.
+                capture = await gift_capture_service.capture(db, session_id, event)
+                if capture is not None:
+                    if capture.quantity <= 0:
+                        # Already charged as part of this streak. Recording it
+                        # twice is what turns "Rose x50" into 1275 damage.
+                        await db.commit()
+                        return {}
+                    event.gift.quantity = capture.quantity
+                    if capture.learning:
+                        # Learning mode: discover the gift, touch nothing else.
+                        logger.info(
+                            "modo aprendizagem: %s x%s capturado sem efeito no jogo",
+                            capture.captured.platform_gift_id,
+                            capture.quantity,
+                        )
+                        await db.commit()
+                        return {}
+
                 if battle.mode == "team_pvp":
                     message = await self._handle_gift_pvp(db, session, battle, event)
                 elif battle.mode == "tank_war":
@@ -132,7 +155,12 @@ class GamePipeline:
         combo_count = combo_manager.register(session.id, event.user.id, gift.gift_key, quantity)
         combo_tier = gift_cache.combo_tier_for(combo_count)
 
-        action = gift_rule_engine.resolve(gift, quantity, combo_count, combo_tier)
+        # "Próprio time"/"Time adversário" only mean something once we know
+        # which side the sender is on, so look them up before resolving. A
+        # first-time viewer has no team yet and the rule falls back to a fixed
+        # side, which is what the A/B options do anyway.
+        sender_team = await self._existing_team(db, session.id, event.user.id)
+        action = gift_rule_engine.resolve(gift, quantity, combo_count, combo_tier, sender_team)
 
         side_a_char = await db.get(Character, battle.side_a_character_id)
         side_b_char = await db.get(Character, battle.side_b_character_id)
@@ -643,6 +671,17 @@ class GamePipeline:
             "queued": player.queued,
         }
 
+    @staticmethod
+    async def _existing_team(db: AsyncSession, session_id: str, user_id: str) -> str | None:
+        """Which side this viewer already plays for, if they have played."""
+        return (
+            await db.execute(
+                select(Player.team).where(
+                    Player.session_id == session_id, Player.user_id == user_id
+                )
+            )
+        ).scalar_one_or_none()
+
     async def _resolve_gift(self, db: AsyncSession, event: LiveEvent):
         """Use a provider-specific, immutable ID for real LIVE events.
 
@@ -653,53 +692,42 @@ class GamePipeline:
         if event.gift is None:
             return None
 
-        if event.raw.get("provider") != "tiktok":
-            return gift_cache.get(event.gift.id)
+        provider = event.raw.get("provider")
+        if provider in (None, "", "simulator"):
+            # The simulator addresses gifts by their friendly key unless it is
+            # deliberately replaying a platform event (see simulate_catalog_gift).
+            by_key = gift_cache.get(event.gift.id)
+            if by_key is not None:
+                return by_key
+            return gift_cache.get_platform("simulator", event.gift.id)
 
-        await self._record_tiktok_gift_observation(db, event)
-        return gift_cache.get_tiktok(event.gift.id)
-
-    async def _record_tiktok_gift_observation(self, db: AsyncSession, event: LiveEvent) -> None:
-        """Persist the exact incoming gift so the setup wizard can map it."""
-        if event.gift is None:
-            return
-
-        gift_id = str(event.gift.id)
-        observation = await db.get(TikTokGiftObservation, gift_id)
-        now = datetime.now(timezone.utc)
-        raw_coins = event.raw.get("coins")
-        try:
-            coins = int(raw_coins) if raw_coins is not None else None
-        except (TypeError, ValueError):
-            coins = None
-
-        if observation is None:
-            db.add(
-                TikTokGiftObservation(
-                    tiktok_gift_id=gift_id,
-                    name=event.gift.name or gift_id,
-                    coins=coins,
-                    seen_count=1,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                )
-            )
-            return
-
-        observation.name = event.gift.name or observation.name
-        observation.coins = coins if coins is not None else observation.coins
-        observation.seen_count += 1
-        observation.last_seen_at = now
+        return gift_cache.get_platform(provider, event.gift.id)
 
     @staticmethod
     def _log_unknown_gift(event: LiveEvent) -> None:
+        """A gift with no rule is captured but never fires an attack.
+
+        Section 6: the gift is already in the catalogue by the time we get
+        here, so the only thing left to do is tell the operator it is sitting
+        there unconfigured.
+        """
         if event.gift is None:
             return
-        if event.raw.get("provider") == "tiktok":
+        provider = event.raw.get("provider")
+        if provider not in (None, "", "simulator"):
             logger.warning(
-                "unmapped TikTok gift id=%s name=%s ignored; map it in Admin -> Ao vivo",
+                "presente sem regra: plataforma=%s id=%s nome=%s -- configure em Presentes da LIVE",
+                provider,
                 event.gift.id,
                 event.gift.name,
+            )
+            admin_channel.broadcast_soon(
+                {
+                    "type": "gift_catalog:unconfigured",
+                    "platform": provider,
+                    "gift_id": str(event.gift.id),
+                    "name": event.gift.name,
+                }
             )
             return
         logger.warning("unknown or inactive gift_key=%s ignored", event.gift.id)

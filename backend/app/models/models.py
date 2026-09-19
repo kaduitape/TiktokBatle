@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -163,9 +173,14 @@ class Gift(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
     gift_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    # Stable ID emitted by TikTok for this gift. It is intentionally separate
-    # from gift_key: the latter is a human/admin-facing key also used by the
-    # simulator, while TikTok sends numeric IDs such as "5655".
+    # Which platform ``tiktok_gift_id`` belongs to. A rule is looked up by
+    # (platform, platform gift id) and never by name: names get translated,
+    # reworded and reused, while the numeric ID is what the platform keys on.
+    platform: Mapped[str] = mapped_column(String, default="tiktok", nullable=False)
+    # Stable ID emitted by the platform for this gift -- the "platform_gift_id"
+    # of the catalogue. It is intentionally separate from gift_key: the latter
+    # is a human/admin-facing key also used by the simulator, while TikTok
+    # sends numeric IDs such as "5655".
     tiktok_gift_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     icon: Mapped[str] = mapped_column(String, default="🎁")
@@ -191,22 +206,50 @@ class Gift(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class TikTokGiftObservation(Base):
-    """A gift seen in a real TikTok LIVE but not necessarily mapped yet.
+class LiveGiftCatalogEntry(Base):
+    """Every gift the LIVE has ever sent us, captured automatically.
 
-    Recording observations lets the live setup wizard show the exact numeric
-    TikTok IDs sent by the current room. An operator can then map one to a
-    configured game action without guessing IDs or reading container logs.
+    Nothing here is typed by hand: the platform tells us the ID, and whatever
+    else it happens to include (name, artwork, diamond value) is recorded
+    beside it. A gift the platform reports without a name or a price is still
+    a valid catalogue row -- every optional field accepts NULL rather than
+    inventing a value -- because the ID is the part the game actually needs.
+
+    This is the catalogue, not the rule. The action a gift performs lives on
+    the ``Gift`` row joined by (platform, platform_gift_id); a catalogue entry
+    with no such Gift is simply one nobody has configured yet.
     """
 
-    __tablename__ = "tiktok_gift_observations"
+    __tablename__ = "live_gifts"
+    __table_args__ = (
+        UniqueConstraint("platform", "platform_gift_id", name="uq_live_gifts_platform_id"),
+    )
 
-    tiktok_gift_id: Mapped[str] = mapped_column(String, primary_key=True)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    coins: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    seen_count: Mapped[int] = mapped_column(Integer, default=1)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
+    platform: Mapped[str] = mapped_column(String, nullable=False, default="tiktok")
+    platform_gift_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Where the artwork was copied to locally, so the arena does not depend on
+    # the platform's CDN staying reachable mid-stream.
+    cached_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    diamond_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    coin_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    times_received: Mapped[int] = mapped_column(Integer, default=0)
+
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Anything else the provider sent that has no column of its own. Keeping it
+    # is what makes diagnosing a changed TikTok payload possible at all.
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ComboTier(Base):

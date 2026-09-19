@@ -98,15 +98,34 @@ class BattleOut(BattleIn):
         from_attributes = True
 
 
+#: Kept in sync with gift_rule_engine.ACTION_OPTIONS / TARGET_OPTIONS.
+GiftAction = Literal[
+    "shot",
+    "burst",
+    "missile",
+    "bomb",
+    "meteor",
+    "airstrike",
+    "lightning",
+    "heal",
+    "super_heal",
+    "shield",
+    "special",
+    "none",
+]
+GiftTarget = Literal["A", "B", "own_team", "enemy_team", "both", "global"]
+
+
 class GiftIn(BaseModel):
     gift_key: str
+    platform: str = "tiktok"
     tiktok_gift_id: str | None = None
     name: str
     icon: str = "🎁"
     image_url: str | None = None
-    action_type: Literal["shot", "missile", "heal", "super_heal", "special"]
+    action_type: GiftAction
     value: float = 0
-    target_side: Literal["A", "B"] = "A"
+    target_side: GiftTarget = "A"
     coins: int = 1
     animation_key: str = "shot"
     sound_key: str = "shot"
@@ -122,18 +141,60 @@ class GiftOut(GiftIn):
         from_attributes = True
 
 
-class TikTokGiftObservationOut(BaseModel):
-    tiktok_gift_id: str
-    name: str
-    coins: int | None = None
-    seen_count: int
+class LiveGiftOut(BaseModel):
+    """One row of the automatic catalogue, as the admin panel sees it.
+
+    Every field the platform did not supply comes back as null rather than as
+    a stand-in value, so "valor desconhecido" stays distinguishable from
+    "valor zero".
+    """
+
+    id: str
+    platform: str
+    platform_gift_id: str
+    name: str | None = None
+    image_url: str | None = None
+    diamond_value: int | None = None
+    coin_value: int | None = None
+    times_received: int
     first_seen_at: datetime
     last_seen_at: datetime
-    configured_gift_id: str | None = None
-    configured_gift_key: str | None = None
+    active: bool
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        from_attributes = True
+    # The rule attached to this gift, if somebody configured one.
+    configured: bool = False
+    gift_id: str | None = None
+    gift_key: str | None = None
+    action_type: str | None = None
+    action_label: str | None = None
+    xp_value: float | None = None
+    target_side: str | None = None
+    animation_key: str | None = None
+    sound_key: str | None = None
+
+
+class LiveGiftRuleIn(BaseModel):
+    """What the "Configurar presente" modal saves.
+
+    Only the action matters here -- the gift's identity comes from the
+    catalogue row, never from anything typed in.
+    """
+
+    action_type: GiftAction
+    target_side: GiftTarget = "A"
+    value: float = 0
+    animation_key: str = "shot"
+    sound_key: str = "shot"
+    coins: int | None = None
+    multiplier: float = 1.0
+    combo_allowed: bool = True
+    active: bool = True
+    icon: str | None = None
+
+
+class LearningModeIn(BaseModel):
+    enabled: bool
 
 
 class ComboTierIn(BaseModel):

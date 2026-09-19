@@ -19,6 +19,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "legend_y": 0.9,
         "legend_scale": 1.0,
     },
+    # Automatic gift capture. Learning mode lets an operator run a private
+    # LIVE, send gifts to discover their IDs, and have every one of them
+    # recorded without any of it touching the scoreboard.
+    "live_capture": {
+        "learning_mode": False,
+    },
     "audio_mixer": {
         "music": 30,
         "shots": 80,
@@ -82,6 +88,18 @@ class SettingsService:
         row = await db.get(Setting, key)
         value = {**defaults, **(row.value or {})} if row else dict(defaults)
         self._cache[key] = value
+        return value
+
+    async def set(self, db: AsyncSession, key: str, value: dict[str, Any]) -> dict[str, Any]:
+        """Write a settings key and drop it from the cache in one step, so a
+        service flipping a switch cannot leave readers on a stale value."""
+        row = await db.get(Setting, key)
+        if row:
+            row.value = value
+        else:
+            db.add(Setting(key=key, value=value))
+        await db.flush()
+        self.invalidate(key)
         return value
 
     def invalidate(self, key: str | None = None) -> None:
