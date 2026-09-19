@@ -31,6 +31,8 @@ export default function Music() {
   const [category, setCategory] = useState<Track["category"]>("normal");
   const [fileUrl, setFileUrl] = useState("");
   const [mixer, setMixer] = useState<Mixer>({ music: 30, shots: 80, explosions: 80, alerts: 70, ui: 50, victory: 80 });
+  const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = () => api.get<Track[]>("/api/music").then(setTracks);
   useEffect(() => {
@@ -38,31 +40,56 @@ export default function Music() {
     api.get<Mixer>("/api/settings/audio_mixer").then(setMixer);
   }, []);
 
-  const upload = async (file: File) => {
-    const { url } = await api.upload("/api/music/upload", file);
-    setFileUrl(url);
+  /** Same silent-failure trap the other pages had: a rejected request just
+   * disappeared and the button looked broken. */
+  const run = async (what: string, action: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await action();
+      if (done) setNotice({ kind: "ok", text: done });
+    } catch (err) {
+      setNotice({ kind: "erro", text: `${what}: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const addTrack = async () => {
+  const upload = (file: File) =>
+    run("Não consegui subir a música", async () => {
+      const { url } = await api.upload("/api/music/upload", file);
+      setFileUrl(url);
+    });
+
+  const addTrack = () => {
     if (!name || !fileUrl) return;
-    await api.post("/api/music", { name, file_url: fileUrl, category, order_index: 0 });
-    setName("");
-    setFileUrl("");
-    load();
+    return run("Não consegui adicionar a faixa", async () => {
+      await api.post("/api/music", { name, file_url: fileUrl, category, order_index: 0 });
+      setName("");
+      setFileUrl("");
+      load();
+    }, "Faixa adicionada.");
   };
 
-  const remove = async (id: string) => {
-    await api.del(`/api/music/${id}`);
-    load();
+  const remove = (id: string, trackName: string) => {
+    if (!window.confirm(`Excluir a faixa "${trackName}"?`)) return;
+    return run("Não consegui excluir a faixa", async () => {
+      await api.del(`/api/music/${id}`);
+      load();
+    }, "Faixa excluída.");
   };
 
-  const saveMixer = async () => {
-    await api.put("/api/settings/audio_mixer", mixer);
-  };
+  const saveMixer = () =>
+    run("Não consegui salvar o mixer", async () => {
+      await api.put("/api/settings/audio_mixer", mixer);
+    }, "Mixer salvo.");
 
   return (
     <div>
       <h1>Músicas &amp; Mixer de Áudio</h1>
+      {notice && (
+        <p style={{ fontSize: 13, color: notice.kind === "erro" ? "#ff9b9b" : "#9ae6b4" }}>{notice.text}</p>
+      )}
       <p style={{ color: "#9a9ac0", fontSize: 13 }}>
         Upload de trilhas por categoria (normal / perigo / vitória / derrota) — a arena troca de faixa sozinha
         conforme o XP cai. Efeitos de tiro/míssil/cura/combo já tocam sintetizados, sem precisar de arquivo.
@@ -102,7 +129,7 @@ export default function Music() {
               <tr key={t.id}>
                 <td>{t.name}</td>
                 <td>{CATEGORY_LABEL[t.category]}</td>
-                <td><button className="secondary" onClick={() => remove(t.id)}>Excluir</button></td>
+                <td><button className="secondary" onClick={() => remove(t.id, t.name)} disabled={busy}>Excluir</button></td>
               </tr>
             ))}
           </tbody>

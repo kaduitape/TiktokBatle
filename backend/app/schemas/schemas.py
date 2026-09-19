@@ -69,6 +69,12 @@ class CharacterOut(CharacterIn):
         from_attributes = True
 
 
+class BattleGiftsIn(BaseModel):
+    """Empty list = the battle accepts every active gift."""
+
+    gift_ids: list[str] = Field(default_factory=list)
+
+
 class BattleIn(BaseModel):
     name: str
     mode: Literal["character", "team_pvp", "tank_war"] = "character"

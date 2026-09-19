@@ -7,6 +7,22 @@ interface Character {
   image_url: string | null;
 }
 
+interface Gift {
+  id: string;
+  gift_key: string;
+  name: string;
+  icon: string;
+  coins: number;
+  action_type: string;
+  active?: boolean;
+}
+
+interface Analysis {
+  battle_name: string;
+  counts: { alto: number; medio: number; dica: number };
+  findings: { severity: "alto" | "medio" | "dica"; area: string; problem: string; fix: string }[];
+}
+
 interface Battle {
   id: string;
   name: string;
@@ -41,44 +57,108 @@ export default function Battles() {
   const [templates, setTemplates] = useState<Battle[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [form, setForm] = useState<typeof empty & { id?: string }>(empty);
+  const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
+  const [gifts, setGifts] = useState<Gift[]>([]);
+  const [giftsFor, setGiftsFor] = useState<{ battle: Battle; selected: string[] } | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  /** Every action here talks to the server, and a failure used to be silent --
+   * the button simply appeared dead. Route them all through this. */
+  const run = async (what: string, action: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await action();
+      if (done) setNotice({ kind: "ok", text: done });
+    } catch (err) {
+      setNotice({ kind: "erro", text: `${what}: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const load = () => {
     api.get<Battle[]>("/api/battles").then(setBattles);
     api.get<Battle[]>("/api/battles/templates").then(setTemplates);
     api.get<Character[]>("/api/characters").then(setCharacters);
+    api.get<Gift[]>("/api/gifts").then(setGifts);
   };
   useEffect(load, []);
 
-  const save = async () => {
+  const save = () => {
     if (form.side_a_character_id === form.side_b_character_id) return;
-    if (form.id) await api.put(`/api/battles/${form.id}`, form);
-    else await api.post("/api/battles", form);
-    setForm(empty);
-    load();
+    return run("Não consegui salvar a batalha", async () => {
+      if (form.id) await api.put(`/api/battles/${form.id}`, form);
+      else await api.post("/api/battles", form);
+      setForm(empty);
+      load();
+    }, form.id ? "Batalha salva." : "Batalha criada.");
   };
 
-  const remove = async (id: string) => {
-    await api.del(`/api/battles/${id}`);
-    load();
+  const remove = (battle: Battle) => {
+    if (!window.confirm(`Excluir "${battle.name}"? O histórico dessa batalha (sessões, participantes e eventos) vai junto.`)) return;
+    return run("Não consegui excluir a batalha", async () => {
+      await api.del(`/api/battles/${battle.id}`);
+      load();
+    }, `Batalha "${battle.name}" excluída.`);
   };
 
-  const saveAsTemplate = async (id: string) => {
+  const openGifts = (battle: Battle) =>
+    run("Não consegui ler os presentes da batalha", async () => {
+      const current = await api.get<{ gift_ids: string[] }>(`/api/battles/${battle.id}/gifts`);
+      setGiftsFor({ battle, selected: current.gift_ids });
+    });
+
+  const toggleGift = (giftId: string) =>
+    setGiftsFor((state) =>
+      state
+        ? {
+            ...state,
+            selected: state.selected.includes(giftId)
+              ? state.selected.filter((g) => g !== giftId)
+              : [...state.selected, giftId],
+          }
+        : state
+    );
+
+  const saveGifts = () => {
+    if (!giftsFor) return;
+    return run("Não consegui salvar os presentes", async () => {
+      await api.put(`/api/battles/${giftsFor.battle.id}/gifts`, { gift_ids: giftsFor.selected });
+      setGiftsFor(null);
+    }, "Presentes desta batalha salvos.");
+  };
+
+  const analyse = (battle: Battle) =>
+    run("Não consegui analisar a batalha", async () => {
+      setAnalysis(await api.get<Analysis>(`/api/battles/${battle.id}/analysis`));
+    });
+
+  const saveAsTemplate = (id: string) => {
     const templateName = window.prompt("Nome do modelo (ex: Política, Futebol, Games)…");
     if (!templateName) return;
-    await api.post(`/api/battles/${id}/save-as-template?template_name=${encodeURIComponent(templateName)}`);
-    load();
+    return run("Não consegui salvar o modelo", async () => {
+      await api.post(`/api/battles/${id}/save-as-template?template_name=${encodeURIComponent(templateName)}`);
+      load();
+    }, `Modelo "${templateName}" salvo.`);
   };
 
-  const instantiateTemplate = async (id: string) => {
+  const instantiateTemplate = (id: string) => {
     const name = window.prompt("Nome da nova batalha baseada nesse modelo…");
     if (!name) return;
-    await api.post(`/api/battles/from-template/${id}?name=${encodeURIComponent(name)}`);
-    load();
+    return run("Não consegui criar a batalha a partir do modelo", async () => {
+      await api.post(`/api/battles/from-template/${id}?name=${encodeURIComponent(name)}`);
+      load();
+    }, `Batalha "${name}" criada.`);
   };
 
-  const removeTemplate = async (id: string) => {
-    await api.del(`/api/battles/${id}`);
-    load();
+  const removeTemplate = (t: Battle) => {
+    if (!window.confirm(`Excluir o modelo "${(t as any).template_name || t.name}"?`)) return;
+    return run("Não consegui excluir o modelo", async () => {
+      await api.del(`/api/battles/${t.id}`);
+      load();
+    }, "Modelo excluído.");
   };
 
   const charFor = (id: string) => characters.find((c) => c.id === id);
@@ -95,6 +175,85 @@ export default function Battles() {
       <p style={{ color: "#9a9ac0", fontSize: 13 }}>
         Uma batalha é só "Lado A x Lado B" — escolha quaisquer dois personagens cadastrados.
       </p>
+
+      {notice && (
+        <div
+          className="card"
+          style={{
+            borderLeft: `4px solid ${notice.kind === "erro" ? "#ff6b6b" : "#4ade80"}`,
+            color: notice.kind === "erro" ? "#ff9b9b" : "#9ae6b4",
+            fontSize: 13,
+          }}
+        >
+          {notice.text}
+        </div>
+      )}
+
+      {giftsFor && (
+        <div className="card">
+          <h3>Presentes de "{giftsFor.battle.name}"</h3>
+          <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+            Marque quais presentes valem nesta batalha. <b>Nenhum marcado = todos valem</b>,
+            que é como toda batalha funcionava até agora. Um presente desmarcado ainda pode ser
+            enviado na live, mas não faz nada aqui.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 6 }}>
+            {gifts.map((g) => (
+              <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={giftsFor.selected.includes(g.id)}
+                  onChange={() => toggleGift(g.id)}
+                />
+                <span>{g.icon} {g.name}</span>
+                <span className="pill">{g.coins}💰</span>
+              </label>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: 14 }}>
+            <button onClick={saveGifts} disabled={busy}>Salvar presentes</button>
+            <button className="secondary" onClick={() => setGiftsFor({ ...giftsFor, selected: [] })}>
+              Marcar todos (limpar seleção)
+            </button>
+            <button className="secondary" onClick={() => setGiftsFor(null)}>Fechar</button>
+          </div>
+          <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 8 }}>
+            {giftsFor.selected.length === 0
+              ? "Nenhum marcado: esta batalha aceita todos os presentes."
+              : `${giftsFor.selected.length} presente(s) marcados.`}
+          </p>
+        </div>
+      )}
+
+      {analysis && (
+        <div className="card">
+          <h3>Análise de "{analysis.battle_name}"</h3>
+          <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+            {analysis.counts.alto} problema(s) sério(s), {analysis.counts.medio} de equilíbrio,{" "}
+            {analysis.counts.dica} dica(s). A análise lê a configuração da batalha — ela não
+            assiste à sua live, então não substitui a sua leitura das regras da plataforma.
+          </p>
+          {analysis.findings.length === 0 && (
+            <p style={{ color: "#4ade80", fontSize: 13 }}>Nada a apontar nesta configuração.</p>
+          )}
+          {analysis.findings.map((f, i) => (
+            <div
+              key={i}
+              style={{
+                borderLeft: `3px solid ${f.severity === "alto" ? "#ff6b6b" : f.severity === "medio" ? "#e0a01b" : "#5a5a7a"}`,
+                padding: "6px 0 6px 10px",
+                marginBottom: 8,
+              }}
+            >
+              <div style={{ fontSize: 13 }}>
+                <span className="pill">{f.area}</span> {f.problem}
+              </div>
+              <div style={{ fontSize: 12, color: "#9a9ac0", marginTop: 2 }}>→ {f.fix}</div>
+            </div>
+          ))}
+          <button className="secondary" onClick={() => setAnalysis(null)}>Fechar</button>
+        </div>
+      )}
 
       <div className="card">
         <h3>{form.id ? "Editar batalha" : "Nova batalha"}</h3>
@@ -132,7 +291,7 @@ export default function Battles() {
 
             <label>Máximo de bolinhas</label>
             <select value={form.max_players} onChange={(e) => setForm({ ...form, max_players: Number(e.target.value) })}>
-              {[100, 250, 500, 750, 1000].map((n) => (
+              {[10, 20, 30, 50, 75, 100, 250, 500, 750, 1000].map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
@@ -212,8 +371,10 @@ export default function Battles() {
                 <td className="row">
                   <a href={`#/arena?battle=${b.id}`} target="_blank" rel="noreferrer"><button>▶ Abrir</button></a>
                   <button className="secondary" onClick={() => setForm(b as any)}>Editar</button>
-                  <button className="secondary" onClick={() => saveAsTemplate(b.id)}>💾 Salvar como modelo</button>
-                  <button className="secondary" onClick={() => remove(b.id)}>Excluir</button>
+                  <button className="secondary" onClick={() => openGifts(b)}>🎁 Presentes</button>
+                  <button className="secondary" onClick={() => analyse(b)}>🔍 Analisar</button>
+                  <button className="secondary" onClick={() => saveAsTemplate(b.id)}>💾 Modelo</button>
+                  <button className="secondary" onClick={() => remove(b)} disabled={busy}>Excluir</button>
                 </td>
               </tr>
             ))}
@@ -235,7 +396,7 @@ export default function Battles() {
                 <td>{charName(t.side_a_character_id)} x {charName(t.side_b_character_id)}</td>
                 <td className="row">
                   <button onClick={() => instantiateTemplate(t.id)}>▶ Usar este modelo</button>
-                  <button className="secondary" onClick={() => removeTemplate(t.id)}>Excluir</button>
+                  <button className="secondary" onClick={() => removeTemplate(t)} disabled={busy}>Excluir</button>
                 </td>
               </tr>
             ))}

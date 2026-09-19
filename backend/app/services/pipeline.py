@@ -121,6 +121,9 @@ class GamePipeline:
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
         gift = await self._resolve_gift(db, event)
+        if gift is not None and not await gift_cache.allows(db, battle.id, gift):
+            logger.info("gift_key=%s não faz parte desta batalha, ignorado", gift.gift_key)
+            return {}
         if gift is None or not gift.active:
             self._log_unknown_gift(event)
             return {}
@@ -251,6 +254,9 @@ class GamePipeline:
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
         gift = await self._resolve_gift(db, event)
+        if gift is not None and not await gift_cache.allows(db, battle.id, gift):
+            logger.info("gift_key=%s não faz parte desta batalha, ignorado", gift.gift_key)
+            return {}
         if gift is None or not gift.active:
             self._log_unknown_gift(event)
             return {}
@@ -388,7 +394,7 @@ class GamePipeline:
         queued = False
         if created or player.eliminated or player.power <= 0:
             if battle.mode == "tank_war" and await tank_war_manager.field_is_full(
-                db, session.id, config
+                db, session.id, config, battle
             ):
                 # Arena full: they are enlisted and hold their place in line.
                 queued = True
@@ -448,6 +454,9 @@ class GamePipeline:
             return {}
 
         gift = await self._resolve_gift(db, event)
+        if gift is not None and not await gift_cache.allows(db, battle.id, gift):
+            logger.info("gift_key=%s não faz parte desta batalha, ignorado", gift.gift_key)
+            return {}
         if gift is None or not gift.active:
             self._log_unknown_gift(event)
             return {}
@@ -474,7 +483,7 @@ class GamePipeline:
         if created or player.eliminated or player.power <= 0:
             # The field is capped, so a newcomer (or somebody coming back from
             # elimination) only walks in if there is room; otherwise they wait.
-            if await tank_war_manager.field_is_full(db, session.id, config):
+            if await tank_war_manager.field_is_full(db, session.id, config, battle):
                 player.queued = True
                 player.power = 0.0
                 player.eliminated = False
@@ -579,7 +588,7 @@ class GamePipeline:
             # An elimination frees a slot, so the next person in line walks in.
             promoted = None
             if hit.eliminated:
-                promoted = await tank_war_manager.promote_from_queue(db, session_id, config)
+                promoted = await tank_war_manager.promote_from_queue(db, session_id, config, battle)
 
             db.add(
                 BattleEvent(

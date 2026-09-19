@@ -35,6 +35,22 @@ export default function Simulator() {
   const [giftKey, setGiftKey] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [log, setLog] = useState<string[]>([]);
+  const [battles, setBattles] = useState<Battle[]>([]);
+  const [pick, setPick] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  /** Simulator actions used to reject silently when something went wrong, so
+   * a failure looked like the button doing nothing. */
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await action();
+    } catch (err) {
+      pushLog(`⚠️ ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const loadActiveBattle = async () => {
     try {
@@ -49,6 +65,10 @@ export default function Simulator() {
 
   useEffect(() => {
     void loadActiveBattle();
+    api.get<Battle[]>("/api/battles").then((bs) => {
+      setBattles(bs);
+      if (bs[0]) setPick(bs[0].id);
+    });
     api.get<Gift[]>("/api/gifts").then((items) => {
       setGifts(items);
       if (items[0]) setGiftKey(items[0].gift_key);
@@ -56,36 +76,49 @@ export default function Simulator() {
   }, []);
 
   const pushLog = (line: string) => setLog((lines) => [line, ...lines].slice(0, 12));
+
+  /** Starting a session here is what makes the simulator usable on its own:
+   * before this, it waited for somebody to open the arena first. */
+  const startPicked = () =>
+    run(async () => {
+      if (!pick) return;
+      await api.post(`/api/battles/${pick}/start`);
+      await loadActiveBattle();
+      pushLog(`Batalha iniciada: ${battles.find((b) => b.id === pick)?.name ?? pick}`);
+    });
   const refreshAfterEvent = () => window.setTimeout(() => void loadActiveBattle(), 400);
 
-  const simulateGift = async () => {
-    if (!active) return;
-    await api.post("/api/simulator/gift", {
-      session_id: active.session.id,
-      username,
-      avatar_url: avatarUrl || undefined,
-      gift_key: giftKey,
-      quantity,
+  const simulateGift = () =>
+    run(async () => {
+      if (!active) return;
+      await api.post("/api/simulator/gift", {
+        session_id: active.session.id,
+        username,
+        avatar_url: avatarUrl || undefined,
+        gift_key: giftKey,
+        quantity,
+      });
+      pushLog(`${username} enviou ${giftKey} x${quantity} para ${active.battle.name}`);
+      refreshAfterEvent();
     });
-    pushLog(`${username} enviou ${giftKey} x${quantity} para ${active.battle.name}`);
-    refreshAfterEvent();
-  };
 
-  const simulateJoin = async () => {
-    if (!active) return;
-    const result = await api.post<{ username: string }>(`/api/simulator/join?session_id=${active.session.id}`);
-    pushLog(`${result.username} entrou em ${active.battle.name}`);
-  };
+  const simulateJoin = () =>
+    run(async () => {
+      if (!active) return;
+      const result = await api.post<{ username: string }>(`/api/simulator/join?session_id=${active.session.id}`);
+      pushLog(`${result.username} entrou em ${active.battle.name}`);
+    });
 
-  const simulateStress = async (count: number) => {
-    if (!active) return;
-    await api.post(
-      `/api/simulator/stress?session_id=${active.session.id}&user_count=${count}`,
-      gifts.map((gift) => gift.gift_key),
-    );
-    pushLog(`LIVE lotada em ${active.battle.name}: ${count} usuários`);
-    window.setTimeout(() => void loadActiveBattle(), 1500);
-  };
+  const simulateStress = (count: number) =>
+    run(async () => {
+      if (!active) return;
+      await api.post(
+        `/api/simulator/stress?session_id=${active.session.id}&user_count=${count}`,
+        gifts.map((gift) => gift.gift_key),
+      );
+      pushLog(`LIVE lotada em ${active.battle.name}: ${count} usuários`);
+      window.setTimeout(() => void loadActiveBattle(), 1500);
+    });
 
   const session = active?.session;
 
@@ -105,6 +138,23 @@ export default function Simulator() {
           <button className="secondary" onClick={() => void loadActiveBattle()}>Atualizar</button>
         </div>
         {activeError && <p style={{ color: "#ff8080", fontSize: 13 }}>{activeError}</p>}
+        <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <label>Iniciar outra batalha e simular nela</label>
+            <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ width: "100%" }}>
+              {battles.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <button className="secondary" onClick={startPicked} disabled={busy || !pick}>
+            ▶ Iniciar esta
+          </button>
+        </div>
+        <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 6 }}>
+          Iniciar deixa essa batalha como a ativa — é nela que a arena do OBS e o simulador
+          passam a trabalhar.
+        </p>
         {session && (
           <div className="row" style={{ marginTop: 10 }}>
             <span className="pill">Lado A: {Math.round(session.side_a_xp).toLocaleString("pt-BR")}</span>

@@ -32,7 +32,7 @@ import { EventSocket } from "./net/EventSocket";
 import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FEED_Y, FLOOR_Y, XP_BAR_Y } from "./constants";
 
 /** Just below the five feed lines, out of the way of the action. */
-const POWERS_LEGEND_Y = FEED_Y + 5 * 26 + 6;
+const POWERS_LEGEND_Y = FEED_Y + 5 * 26 + 2;
 
 /** The voters stay in their team's lower field, well below the candidates. */
 const SOLDIER_FIELD_TOP_Y = FLOOR_Y - 480;
@@ -163,12 +163,12 @@ export default class TankWarScene extends Phaser.Scene {
       this.joinHints[side] = this.add
         .text(x, XP_BAR_Y + 78, "", {
           fontFamily: "Segoe UI, sans-serif",
-          fontSize: "30px",
+          fontSize: "38px",
           fontStyle: "bold",
           color: "#ffffff",
           align: "center",
           stroke: "#000000",
-          strokeThickness: 5,
+          strokeThickness: 6,
         })
         .setOrigin(0.5)
         .setDepth(92);

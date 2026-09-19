@@ -117,6 +117,22 @@ class Battle(Base):
     side_b = relationship("Character", foreign_keys=[side_b_character_id])
 
 
+class BattleGift(Base):
+    """Which gifts a battle accepts.
+
+    No rows for a battle means "every active gift", so battles created before
+    this keep working untouched. Once a battle has rows, gifts outside the list
+    are ignored by the pipeline -- a viewer can still send them, they just do
+    nothing in that battle.
+    """
+
+    __tablename__ = "battle_gifts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
+    battle_id: Mapped[str] = mapped_column(ForeignKey("battles.id"))
+    gift_id: Mapped[str] = mapped_column(ForeignKey("gifts.id"))
+
+
 class BattleSession(Base):
     """One live run of a Battle: current XP, status, timers."""
 

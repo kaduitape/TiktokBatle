@@ -37,6 +37,8 @@ export default function Editor() {
   const [charB, setCharB] = useState<Character | null>(null);
   const [dragging, setDragging] = useState<"A" | "B" | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,11 +66,40 @@ export default function Editor() {
     setDirty(true);
   };
 
-  const save = async () => {
-    if (charA) await api.put(`/api/characters/${charA.id}`, charA);
-    if (charB) await api.put(`/api/characters/${charB.id}`, charB);
-    setDirty(false);
+  /** `apply` restarts the battle after saving, which republishes the whole
+   * state to every open arena. Without it the OBS source keeps the positions
+   * and sizes it drew when it was opened. */
+  const save = async (apply: boolean) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      if (charA) await api.put(`/api/characters/${charA.id}`, charA);
+      if (charB) await api.put(`/api/characters/${charB.id}`, charB);
+      if (apply) await api.post(`/api/battles/${battleId}/restart`);
+      setDirty(false);
+      setNotice({
+        kind: "ok",
+        text: apply
+          ? "Salvo e aplicado: a arena aberta no OBS já está com as novas posições."
+          : "Salvo. Reinicie a batalha (ou use Salvar e aplicar) para a arena aberta mudar.",
+      });
+    } catch (err) {
+      setNotice({ kind: "erro", text: `Não consegui salvar: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
   };
+
+  /** Position and size live on the character, so a character used by two
+   * battles moves in both. Say so instead of letting it surprise somebody. */
+  const sharedWith = (characterId: string | undefined) =>
+    characterId
+      ? battles.filter(
+          (b) =>
+            b.id !== battleId &&
+            (b.side_a_character_id === characterId || b.side_b_character_id === characterId)
+        )
+      : [];
 
   return (
     <div>
@@ -168,16 +199,39 @@ export default function Editor() {
                 <span className="pill">x: {charA.pos_x.toFixed(2)}</span>
                 <span className="pill">y: {charA.pos_y.toFixed(2)}</span>
               </div>
-              <label>Escala</label>
+              <label>Tamanho: {(charA.scale * 100).toFixed(0)}%</label>
               <input
-                type="number"
-                step="0.05"
+                type="range"
+                min={0.2}
+                max={2}
+                step={0.05}
                 value={charA.scale}
                 onChange={(e) => {
                   setCharA({ ...charA, scale: Number(e.target.value) });
                   setDirty(true);
                 }}
+                style={{ width: "100%" }}
               />
+              <div className="row">
+                <input
+                  type="number"
+                  step="0.05"
+                  min={0.1}
+                  value={charA.scale}
+                  onChange={(e) => {
+                    setCharA({ ...charA, scale: Math.max(0.1, Number(e.target.value)) });
+                    setDirty(true);
+                  }}
+                  style={{ width: 90 }}
+                />
+                <span className="pill">≈ {Math.round(900 * charA.scale)} px de altura na arena</span>
+              </div>
+              {sharedWith(charA.id).length > 0 && (
+                <p style={{ color: "#e0a01b", fontSize: 12 }}>
+                  Atenção: este personagem também é usado em{" "}
+                  {sharedWith(charA.id).map((b) => b.name).join(", ")} — mudar aqui muda lá também.
+                </p>
+              )}
             </div>
           )}
           {charB && (
@@ -187,22 +241,55 @@ export default function Editor() {
                 <span className="pill">x: {charB.pos_x.toFixed(2)}</span>
                 <span className="pill">y: {charB.pos_y.toFixed(2)}</span>
               </div>
-              <label>Escala</label>
+              <label>Tamanho: {(charB.scale * 100).toFixed(0)}%</label>
               <input
-                type="number"
-                step="0.05"
+                type="range"
+                min={0.2}
+                max={2}
+                step={0.05}
                 value={charB.scale}
                 onChange={(e) => {
                   setCharB({ ...charB, scale: Number(e.target.value) });
                   setDirty(true);
                 }}
+                style={{ width: "100%" }}
               />
+              <div className="row">
+                <input
+                  type="number"
+                  step="0.05"
+                  min={0.1}
+                  value={charB.scale}
+                  onChange={(e) => {
+                    setCharB({ ...charB, scale: Math.max(0.1, Number(e.target.value)) });
+                    setDirty(true);
+                  }}
+                  style={{ width: 90 }}
+                />
+                <span className="pill">≈ {Math.round(900 * charB.scale)} px de altura na arena</span>
+              </div>
+              {sharedWith(charB.id).length > 0 && (
+                <p style={{ color: "#e0a01b", fontSize: 12 }}>
+                  Atenção: este personagem também é usado em{" "}
+                  {sharedWith(charB.id).map((b) => b.name).join(", ")} — mudar aqui muda lá também.
+                </p>
+              )}
             </div>
           )}
 
           <div className="row" style={{ marginTop: 20 }}>
-            <button onClick={save} disabled={!dirty}>Salvar posições</button>
+            <button onClick={() => save(true)} disabled={!dirty || busy}>
+              Salvar e aplicar na arena
+            </button>
+            <button className="secondary" onClick={() => save(false)} disabled={!dirty || busy}>
+              Só salvar
+            </button>
           </div>
+          {notice && (
+            <p style={{ fontSize: 13, marginTop: 10, color: notice.kind === "erro" ? "#ff9b9b" : "#9ae6b4" }}>
+              {notice.text}
+            </p>
+          )}
           <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 14 }}>
             XP, ranking, feed e legenda ainda usam posições fixas nesta versão — apenas os dois personagens
             são reposicionáveis pelo editor visual por enquanto.

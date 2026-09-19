@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Gift, Player
+from app.models.models import Battle, Gift, Player
 
 
 @dataclass
@@ -53,8 +53,18 @@ class TankWarManager:
         return "B" if team == "A" else "A"
 
     @staticmethod
-    def field_capacity(config: dict[str, Any]) -> int:
-        return max(1, int(config.get("max_field_players", 100)))
+    def field_capacity(config: dict[str, Any], battle: "Battle | None" = None) -> int:
+        """How many fighters fit on the field.
+
+        The mode's own ceiling and the battle's "máximo de participantes" both
+        apply, and the smaller wins -- so picking 20 in the battle form really
+        gives 20, while leaving the default there still respects the mode's
+        limit instead of flooding the arena.
+        """
+        limit = max(1, int(config.get("max_field_players", 100)))
+        if battle is not None and battle.max_players:
+            limit = min(limit, max(1, int(battle.max_players)))
+        return limit
 
     @staticmethod
     async def count_on_field(db: AsyncSession, session_id: str) -> int:
@@ -74,8 +84,12 @@ class TankWarManager:
         ).scalar_one()
 
     @staticmethod
-    async def field_is_full(db: AsyncSession, session_id: str, config: dict[str, Any]) -> bool:
-        return await TankWarManager.count_on_field(db, session_id) >= TankWarManager.field_capacity(config)
+    async def field_is_full(
+        db: AsyncSession, session_id: str, config: dict[str, Any], battle: "Battle | None" = None
+    ) -> bool:
+        return await TankWarManager.count_on_field(db, session_id) >= TankWarManager.field_capacity(
+            config, battle
+        )
 
     @staticmethod
     async def next_in_queue(db: AsyncSession, session_id: str) -> Player | None:
@@ -112,11 +126,11 @@ class TankWarManager:
 
     @staticmethod
     async def promote_from_queue(
-        db: AsyncSession, session_id: str, config: dict[str, Any]
+        db: AsyncSession, session_id: str, config: dict[str, Any], battle: "Battle | None" = None
     ) -> Player | None:
         """Walks the next person in line onto the field, at full health.
         Called when a slot opens, i.e. when somebody is eliminated."""
-        if await TankWarManager.field_is_full(db, session_id, config):
+        if await TankWarManager.field_is_full(db, session_id, config, battle):
             return None
         player = await TankWarManager.next_in_queue(db, session_id)
         if not player:

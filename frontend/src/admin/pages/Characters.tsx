@@ -50,36 +50,49 @@ export default function Characters() {
   const [list, setList] = useState<Character[]>([]);
   const [form, setForm] = useState<Omit<Character, "id"> & { id?: string }>(empty);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
+
+  /** A failed request used to reject silently, which looked exactly like a
+   * dead button. Everything that talks to the server reports back now. */
+  const run = async (what: string, action: () => Promise<unknown>, done?: string) => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      await action();
+      if (done) setNotice({ kind: "ok", text: done });
+    } catch (err) {
+      setNotice({ kind: "erro", text: `${what}: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const load = () => api.get<Character[]>("/api/characters").then(setList);
   useEffect(() => {
     load();
   }, []);
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      if (form.id) {
-        await api.put(`/api/characters/${form.id}`, form);
-      } else {
-        await api.post("/api/characters", form);
-      }
+  const save = () =>
+    run("Não consegui salvar o personagem", async () => {
+      if (form.id) await api.put(`/api/characters/${form.id}`, form);
+      else await api.post("/api/characters", form);
       setForm(empty);
       load();
-    } finally {
-      setSaving(false);
-    }
+    }, form.id ? "Personagem salvo." : "Personagem criado.");
+
+  const remove = (c: Character) => {
+    if (!window.confirm(`Excluir "${c.name}"?`)) return;
+    return run("Não consegui excluir", async () => {
+      await api.del(`/api/characters/${c.id}`);
+      load();
+    }, `Personagem "${c.name}" excluído.`);
   };
 
-  const remove = async (id: string) => {
-    await api.del(`/api/characters/${id}`);
-    load();
-  };
-
-  const upload = async (file: File, field: "image_url" | "background_url" | "hit_image_url" | "fire_image_url") => {
-    const { url } = await api.upload("/api/characters/upload", file);
-    setForm((f) => ({ ...f, [field]: url }));
-  };
+  const upload = (file: File, field: "image_url" | "background_url" | "hit_image_url" | "fire_image_url") =>
+    run("Não consegui subir a imagem", async () => {
+      const { url } = await api.upload("/api/characters/upload", file);
+      setForm((f) => ({ ...f, [field]: url }));
+    });
 
   const placeOnSide = (side: "A" | "B") => {
     setForm((current) => ({
@@ -96,6 +109,19 @@ export default function Characters() {
       <p style={{ color: "#9a9ac0", fontSize: 13 }}>
         Nenhum personagem é fixo no código — cadastre qualquer Lado A/Lado B aqui.
       </p>
+
+      {notice && (
+        <div
+          className="card"
+          style={{
+            borderLeft: `4px solid ${notice.kind === "erro" ? "#ff6b6b" : "#4ade80"}`,
+            color: notice.kind === "erro" ? "#ff9b9b" : "#9ae6b4",
+            fontSize: 13,
+          }}
+        >
+          {notice.text}
+        </div>
+      )}
 
       <div className="card">
         <h3>{form.id ? "Editar personagem" : "Novo personagem"}</h3>
@@ -288,7 +314,7 @@ export default function Characters() {
                 <td>{c.xp_max.toLocaleString("pt-BR")}</td>
                 <td className="row">
                   <button className="secondary" onClick={() => setForm(c)}>Editar</button>
-                  <button className="secondary" onClick={() => remove(c.id)}>Excluir</button>
+                  <button className="secondary" onClick={() => remove(c)} disabled={saving}>Excluir</button>
                 </td>
               </tr>
             ))}

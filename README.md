@@ -289,6 +289,33 @@ da mesma imagem (inpainting / "editar esta imagem"), **prefira isso a gerar do
 zero** — mudar só o braço na mesma arte mantém a consistência que o gerador
 não consegue repetir sozinho.
 
+## Presentes por batalha
+
+Cada batalha pode aceitar só um conjunto de presentes. Em **Admin → Batalhas**,
+o botão **🎁 Presentes** na linha da batalha abre a lista: marque os que valem
+ali. **Nenhum marcado = todos valem**, que é como toda batalha funcionava antes
+— nenhuma batalha existente muda de comportamento.
+
+Um presente desmarcado ainda pode ser enviado na live (o TikTok não sabe da sua
+configuração), mas não faz nada naquela batalha: o evento é registrado e
+ignorado.
+
+## Análise da arena
+
+O botão **🔍 Analisar** em cada batalha lê a configuração e aponta o que
+atrapalha a live: personagem sem imagem, os dois lados com a mesma arte, vidas
+desbalanceadas, nenhum presente barato (o público que não gasta fica de fora),
+um presente caro demais que decide a partida sozinho, chefão com pouca vida
+para o modo, limite de participantes alto demais para alguém se reconhecer na
+tela, e partida sem tempo nem reinício.
+
+Os achados vêm em três níveis: **alto** (quebra a experiência), **médio**
+(desequilíbrio) e **dica**. Cada um vem com o que fazer.
+
+> A análise lê **a configuração da batalha**, não a sua transmissão. Ela ajuda
+> a evitar os erros visíveis nos dados e não tem como garantir nada sobre as
+> regras de nenhuma plataforma — isso continua sendo leitura sua.
+
 ## Stack
 
 - **Backend**: Python 3.12 + FastAPI + SQLAlchemy (async) + PostgreSQL + Redis (reservado para filas/pub-sub multi-processo)

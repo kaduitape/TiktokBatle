@@ -3,8 +3,10 @@ import type { PvpPlayerPayload } from "../../../types/events";
 import { bakeAvatarTexture } from "../avatarTexture";
 import { CEILING_Y, FLOOR_Y, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y } from "../constants";
 
-const TEXTURE_SIZE = 128;
-const MIN_DIAMETER = 46;
+// Baked at more than twice the smallest on-screen size so the circle stays
+// crisp, and never below it, which is what made small avatars look ragged.
+const TEXTURE_SIZE = 160;
+const MIN_DIAMETER = 64;
 const MAX_DIAMETER = 190;
 const POWER_FOR_MIN = 100;
 /** A visible breathing room so profile circles do not begin on top of one

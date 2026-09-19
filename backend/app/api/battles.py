@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
 from app.core.database import get_db
-from app.models.models import Battle, BattleSession, Character
-from app.schemas.schemas import ActiveBattleOut, BattleIn, BattleOut, SessionOut
+from app.models.models import Battle, BattleEvent, BattleGift, BattleSession, Character, Gift, Player
+from app.schemas.schemas import ActiveBattleOut, BattleGiftsIn, BattleIn, BattleOut, SessionOut
+from app.services import arena_analysis
 from app.services.battle_manager import battle_manager
+from app.services.gift_cache import gift_cache
 from app.services.state_sync import build_state_sync
 from app.ws.connection_manager import connection_manager
 
@@ -112,12 +114,30 @@ async def update_battle(
 
 @router.delete("/{battle_id}")
 async def delete_battle(battle_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    """Deleting a battle takes its history with it.
+
+    A battle owns sessions, which own players and events. Nothing declares a
+    cascade, so removing only the battle row left those children pointing at
+    nothing: PostgreSQL rejected it and the panel showed a button that did
+    nothing. Clear the children first, deepest first.
+    """
     battle = await db.get(Battle, battle_id)
     if not battle:
         raise HTTPException(404, "battle not found")
+
+    session_ids = (
+        (await db.execute(select(BattleSession.id).where(BattleSession.battle_id == battle_id)))
+        .scalars()
+        .all()
+    )
+    if session_ids:
+        await db.execute(delete(BattleEvent).where(BattleEvent.session_id.in_(session_ids)))
+        await db.execute(delete(Player).where(Player.session_id.in_(session_ids)))
+        await db.execute(delete(BattleSession).where(BattleSession.id.in_(session_ids)))
+
     await db.delete(battle)
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "sessions_removed": len(session_ids)}
 
 
 @router.post("/{battle_id}/start", response_model=SessionOut)
@@ -182,6 +202,57 @@ async def restart_battle(battle_id: str, db: AsyncSession = Depends(get_db), _: 
     if state:
         await connection_manager.broadcast(session.id, state)
     return session
+
+
+@router.get("/{battle_id}/analysis")
+async def analyse_battle(battle_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    """Reads the battle's configuration and reports what would hurt the live.
+    It checks data, not the stream, so it never claims a battle is 'approved'."""
+    battle = await db.get(Battle, battle_id)
+    if not battle:
+        raise HTTPException(404, "battle not found")
+    return await arena_analysis.analyse(db, battle)
+
+
+@router.get("/{battle_id}/gifts")
+async def get_battle_gifts(battle_id: str, db: AsyncSession = Depends(get_db)):
+    """The gift ids this battle accepts. An empty list means every active
+    gift -- the panel shows that as 'todos'."""
+    battle = await db.get(Battle, battle_id)
+    if not battle:
+        raise HTTPException(404, "battle not found")
+    gift_ids = (
+        (await db.execute(select(BattleGift.gift_id).where(BattleGift.battle_id == battle_id)))
+        .scalars()
+        .all()
+    )
+    return {"battle_id": battle_id, "gift_ids": list(gift_ids), "all_gifts": not gift_ids}
+
+
+@router.put("/{battle_id}/gifts")
+async def set_battle_gifts(
+    battle_id: str,
+    body: BattleGiftsIn,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    battle = await db.get(Battle, battle_id)
+    if not battle:
+        raise HTTPException(404, "battle not found")
+
+    known = set(
+        (await db.execute(select(Gift.id).where(Gift.id.in_(body.gift_ids)))).scalars().all()
+    ) if body.gift_ids else set()
+    unknown = [g for g in body.gift_ids if g not in known]
+    if unknown:
+        raise HTTPException(400, f"presente desconhecido: {', '.join(unknown)}")
+
+    await db.execute(delete(BattleGift).where(BattleGift.battle_id == battle_id))
+    for gift_id in dict.fromkeys(body.gift_ids):
+        db.add(BattleGift(battle_id=battle_id, gift_id=gift_id))
+    await db.commit()
+    gift_cache.invalidate_battle(battle_id)
+    return {"battle_id": battle_id, "gift_ids": body.gift_ids, "all_gifts": not body.gift_ids}
 
 
 @router.post("/{battle_id}/save-as-template", response_model=BattleOut)

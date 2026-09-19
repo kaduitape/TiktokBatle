@@ -36,7 +36,10 @@ class AvatarService:
             existing.avatar_url = avatar_url or existing.avatar_url
             return existing, False
 
-        await AvatarService._enforce_capacity(db, session_id, battle.max_players)
+        if battle.mode != "tank_war":
+            # Tank war holds newcomers in a queue instead of pushing somebody
+            # out, so evicting here would quietly undo that.
+            await AvatarService._enforce_capacity(db, session_id, battle.max_players)
 
         player = Player(
             session_id=session_id,
@@ -52,6 +55,8 @@ class AvatarService:
 
     @staticmethod
     async def _enforce_capacity(db: AsyncSession, session_id: str, max_players: int) -> None:
+        """Drops the least recently active viewer to make room. Used by the
+        modes with no queue; tank war never calls it."""
         count = (
             await db.execute(
                 select(func.count()).select_from(Player).where(Player.session_id == session_id)
