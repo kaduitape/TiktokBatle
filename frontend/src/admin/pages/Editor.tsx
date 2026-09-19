@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../../api/client";
+import { api, assetUrl } from "../../api/client";
 
 interface Battle {
   id: string;
@@ -41,12 +41,29 @@ export default function Editor() {
   const [busy, setBusy] = useState(false);
   /** Bottom strip the live overlay covers, in arena pixels (of 1920). */
   const [bottomSafe, setBottomSafe] = useState(0);
+  /** The overlay image and where it sits, as fractions of the arena. */
+  const [legend, setLegend] = useState({ url: "", x: 0.5, y: 0.9, scale: 1 });
+  const [draggingLegend, setDraggingLegend] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api
-      .get<{ bottom_safe_px?: number }>("/api/settings/arena")
-      .then((l) => setBottomSafe(Number(l?.bottom_safe_px ?? 0)))
+      .get<{
+        bottom_safe_px?: number;
+        legend_image_url?: string;
+        legend_x?: number;
+        legend_y?: number;
+        legend_scale?: number;
+      }>("/api/settings/arena")
+      .then((l) => {
+        setBottomSafe(Number(l?.bottom_safe_px ?? 0));
+        setLegend({
+          url: l?.legend_image_url ?? "",
+          x: Number(l?.legend_x ?? 0.5),
+          y: Number(l?.legend_y ?? 0.9),
+          scale: Number(l?.legend_scale ?? 1),
+        });
+      })
       .catch(() => setBottomSafe(0));
     api.get<Battle[]>("/api/battles").then((bs) => {
       setBattles(bs);
@@ -63,13 +80,32 @@ export default function Editor() {
   }, [battleId, battles]);
 
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging || !previewRef.current) return;
+    if (!previewRef.current) return;
     const rect = previewRef.current.getBoundingClientRect();
     const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    if (draggingLegend) {
+      setLegend((l) => ({ ...l, x, y }));
+      setDirty(true);
+      return;
+    }
+    if (!dragging) return;
     if (dragging === "A") setCharA((c) => (c ? { ...c, pos_x: x, pos_y: y } : c));
     else setCharB((c) => (c ? { ...c, pos_x: x, pos_y: y } : c));
     setDirty(true);
+  };
+
+  /** Shared wrapper so an upload failure shows up instead of vanishing. */
+  const run = async (what: string, action: () => Promise<unknown>) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await action();
+    } catch (err) {
+      setNotice({ kind: "erro", text: `${what}: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBusy(false);
+    }
   };
 
   /** `apply` restarts the battle after saving, which republishes the whole
@@ -79,7 +115,13 @@ export default function Editor() {
     setBusy(true);
     setNotice(null);
     try {
-      await api.put("/api/settings/arena", { bottom_safe_px: Math.round(bottomSafe) });
+      await api.put("/api/settings/arena", {
+        bottom_safe_px: Math.round(bottomSafe),
+        legend_image_url: legend.url,
+        legend_x: legend.x,
+        legend_y: legend.y,
+        legend_scale: legend.scale,
+      });
       if (charA) await api.put(`/api/characters/${charA.id}`, charA);
       if (charB) await api.put(`/api/characters/${charB.id}`, charB);
       if (apply) await api.post(`/api/battles/${battleId}/restart`);
@@ -128,8 +170,14 @@ export default function Editor() {
         <div
           ref={previewRef}
           onPointerMove={onPointerMove}
-          onPointerUp={() => setDragging(null)}
-          onPointerLeave={() => setDragging(null)}
+          onPointerUp={() => {
+            setDragging(null);
+            setDraggingLegend(false);
+          }}
+          onPointerLeave={() => {
+            setDragging(null);
+            setDraggingLegend(false);
+          }}
           style={{
             width: PREVIEW_WIDTH,
             height: PREVIEW_HEIGHT,
@@ -165,6 +213,28 @@ export default function Editor() {
           )}
           <div style={{ position: "absolute", left: 6, top: 6, color: "#ffd700", fontWeight: 700, fontSize: 12 }}>A</div>
           <div style={{ position: "absolute", right: 6, top: 6, color: "#ffd700", fontWeight: 700, fontSize: 12 }}>B</div>
+
+          {legend.url && (
+            <img
+              src={assetUrl(legend.url)}
+              alt="legenda"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setDraggingLegend(true);
+              }}
+              style={{
+                position: "absolute",
+                left: legend.x * PREVIEW_WIDTH,
+                top: legend.y * PREVIEW_HEIGHT,
+                transform: "translate(-50%, -50%)",
+                width: PREVIEW_WIDTH * 0.5 * legend.scale,
+                cursor: "grab",
+                userSelect: "none",
+                zIndex: 3,
+              }}
+              draggable={false}
+            />
+          )}
 
           {charA && (
             <div
@@ -338,6 +408,59 @@ export default function Editor() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div style={{ marginTop: 18, borderTop: "1px solid #2a2a3a", paddingTop: 14 }}>
+            <strong>Legenda em imagem (PNG)</strong>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "4px 0 8px" }}>
+              A legenda escrita pelo jogo saiu. Suba o seu PNG (fundo transparente) e
+              arraste no preview para posicionar — ele aparece por cima da arena nos três modos.
+            </p>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) =>
+                e.target.files &&
+                run("Não consegui subir a legenda", async () => {
+                  const { url } = await api.upload("/api/characters/upload", e.target.files![0]);
+                  setLegend((l) => ({ ...l, url }));
+                  setDirty(true);
+                })
+              }
+            />
+            {legend.url && (
+              <>
+                <div className="row" style={{ marginTop: 8 }}>
+                  <span className="pill">no preview: arraste para mover</span>
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setLegend((l) => ({ ...l, url: "" }));
+                      setDirty(true);
+                    }}
+                  >
+                    Remover legenda
+                  </button>
+                </div>
+                <label style={{ marginTop: 8 }}>Tamanho: {(legend.scale * 100).toFixed(0)}%</label>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={2}
+                  step={0.05}
+                  value={legend.scale}
+                  onChange={(e) => {
+                    setLegend((l) => ({ ...l, scale: Number(e.target.value) }));
+                    setDirty(true);
+                  }}
+                  style={{ width: "100%" }}
+                />
+                <div className="row">
+                  <span className="pill">x: {legend.x.toFixed(2)}</span>
+                  <span className="pill">y: {legend.y.toFixed(2)}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="row" style={{ marginTop: 20 }}>

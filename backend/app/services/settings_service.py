@@ -11,6 +11,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     # ground, the feed and the legend stop where the chat begins.
     "arena": {
         "bottom_safe_px": 420,
+        # Overlay image drawn on top of the arena -- a legend, rules card or
+        # watermark the admin draws themselves. Empty means nothing is drawn.
+        # Position is a fraction of the arena (0-1) so it survives any scale.
+        "legend_image_url": "",
+        "legend_x": 0.5,
+        "legend_y": 0.9,
+        "legend_scale": 1.0,
     },
     "audio_mixer": {
         "music": 30,

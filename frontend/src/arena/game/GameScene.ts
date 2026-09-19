@@ -21,6 +21,7 @@ import { ProjectileManager } from "./managers/ProjectileManager";
 import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
+import { drawArenaOverlay } from "./arenaOverlay";
 import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, } from "./constants";
 
 function resolveUrl(url: string | null): string | null {
@@ -92,6 +93,8 @@ export default class GameScene extends Phaser.Scene {
     this.feed = new FeedManager(this);
     this.audio = new AudioManager();
     this.audio.init();
+
+    drawArenaOverlay(this);
 
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();

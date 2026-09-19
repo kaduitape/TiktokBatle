@@ -19,6 +19,7 @@ import { ProjectileManager } from "./managers/ProjectileManager";
 import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
 import { EventSocket } from "./net/EventSocket";
+import { drawArenaOverlay } from "./arenaOverlay";
 import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, XP_BAR_Y } from "./constants";
 
 const BAR_WIDTH = ARENA_WIDTH / 2 - 40;
@@ -89,6 +90,8 @@ export default class TeamBattleScene extends Phaser.Scene {
     this.audio.init();
 
     this.buildTeamBars();
+
+    drawArenaOverlay(this);
 
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { arenaLayout } from "./game/constants";
+import { arenaOverlay, type OverlayConfig } from "./game/arenaOverlay";
 import type { BattleMode } from "../types/events";
 import PhaserGame from "./game/PhaserGame";
 
@@ -41,8 +42,9 @@ export default function ArenaPage() {
         // are all measured from the bottom, and they have to know how much of
         // it the live overlay covers before anything is drawn.
         try {
-          const layout = await api.get<{ bottom_safe_px?: number }>("/api/settings/arena");
+          const layout = await api.get<OverlayConfig & { bottom_safe_px?: number }>("/api/settings/arena");
           arenaLayout.bottomSafePx = Math.max(0, Number(layout?.bottom_safe_px ?? 0));
+          arenaOverlay.config = layout ?? {};
         } catch {
           /* keep the default layout rather than refusing to open the arena */
         }

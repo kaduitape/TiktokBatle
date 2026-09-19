@@ -29,26 +29,16 @@ import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
+import { drawArenaOverlay } from "./arenaOverlay";
 import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, XP_BAR_Y } from "./constants";
 
 /* Read as functions, not constants: the reserved bottom strip is only known
  * once the scene has the admin setting, which is after this module loads. */
 
-/** Just below the five feed lines, out of the way of the action. */
-const powersLegendY = () => arenaLayout.feedY + 5 * 26 + 2;
-
 /** The voters stay in their team's lower field, well below the candidates. */
 const soldierFieldTopY = () => arenaLayout.floorY - 480;
 const soldierFieldBottomY = () => arenaLayout.floorY - 74;
 const soldierSpawnY = () => arenaLayout.floorY - 108;
-
-interface GiftSummary {
-  name: string;
-  icon: string;
-  coins: number;
-  action_type: string;
-  active?: boolean;
-}
 
 const BAR_WIDTH = ARENA_WIDTH / 2 - 40;
 const GUNNER_TARGET_HEIGHT = 560;
@@ -144,6 +134,8 @@ export default class TankWarScene extends Phaser.Scene {
     this.buildJoinHints();
     void this.loadLegends();
 
+    drawArenaOverlay(this);
+
     this.socket = new EventSocket(this.sessionId, (msg) => this.handleMessage(msg));
     this.socket.connect();
 
@@ -203,39 +195,6 @@ export default class TankWarScene extends Phaser.Scene {
       /* keep the defaults -- the hints still read correctly */
     }
 
-    try {
-      const gifts = await api.get<GiftSummary[]>("/api/gifts");
-      this.buildPowersLegend(gifts.filter((g) => g.active !== false));
-    } catch {
-      /* no legend rather than a broken one */
-    }
-  }
-
-  /** A clear line under the feed listing what each gift is worth. */
-  private buildPowersLegend(gifts: GiftSummary[]) {
-    if (!gifts.length) return;
-    const line = [...gifts]
-      .sort((a, b) => (a.coins || 0) - (b.coins || 0))
-      .map((g) => {
-        const damage = Math.round((g.coins || 1) * this.damagePerCoin).toLocaleString("pt-BR");
-        const star = g.action_type === "special" ? "★" : "";
-        return `${g.icon}${star} ${g.name} ${damage}`;
-      })
-      .join("   ");
-
-    this.add
-      .text(24, powersLegendY(), `PODERES  ·  ${line}   ·   ★ especial`, {
-        fontFamily: "Segoe UI, sans-serif",
-        fontSize: "17px",
-        fontStyle: "bold",
-        color: "#ffffff",
-        stroke: "#000000",
-        strokeThickness: 4,
-        wordWrap: { width: ARENA_WIDTH - 48 },
-        lineSpacing: 2,
-      })
-      .setAlpha(0.92)
-      .setDepth(86);
   }
 
   /** The boss health bars come from the shared XPManager; this is just the
