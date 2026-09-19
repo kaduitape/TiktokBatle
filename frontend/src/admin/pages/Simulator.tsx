@@ -38,6 +38,8 @@ export default function Simulator() {
   const [battles, setBattles] = useState<Battle[]>([]);
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Gift keys this battle accepts. Empty means it accepts all of them. */
+  const [allowed, setAllowed] = useState<string[]>([]);
 
   /** Simulator actions used to reject silently when something went wrong, so
    * a failure looked like the button doing nothing. */
@@ -57,10 +59,29 @@ export default function Simulator() {
       const current = await api.get<ActiveBattle>("/api/battles/active");
       setActive(current);
       setActiveError(null);
+      // Follow the live battle unless the admin has already picked another.
+      setPick((p) => p || current.battle.id);
+      return current;
     } catch {
       setActive(null);
-      setActiveError("Nenhuma batalha está ativa. Abra a arena da batalha que deseja transmitir e volte aqui.");
+      setActiveError("Nenhuma batalha está em andamento. Escolha uma abaixo e clique em iniciar.");
+      return null;
     }
+  };
+
+  /** The session the buttons actually send to.
+   *
+   * This used to be whichever battle was started most recently, which is not
+   * necessarily the one open in OBS -- so events landed somewhere the admin
+   * could not see and the simulator looked broken. Now it is the battle
+   * selected here, started if it is not running yet. */
+  const targetSession = async (): Promise<{ id: string; name: string } | null> => {
+    const battle = battles.find((b) => b.id === pick);
+    if (!battle) return null;
+    if (active?.battle.id === battle.id) return { id: active.session.id, name: battle.name };
+    const session = await api.post<{ id: string }>(`/api/battles/${battle.id}/start`);
+    await loadActiveBattle();
+    return { id: session.id, name: battle.name };
   };
 
   useEffect(() => {
@@ -77,6 +98,21 @@ export default function Simulator() {
 
   const pushLog = (line: string) => setLog((lines) => [line, ...lines].slice(0, 12));
 
+  // A battle can be limited to a few gifts. Sending one outside that list is
+  // accepted and then ignored by the game, which is invisible from here --
+  // so read the selection and say which gifts actually count.
+  useEffect(() => {
+    if (!pick || !gifts.length) return;
+    api
+      .get<{ gift_ids: string[] }>(`/api/battles/${pick}/gifts`)
+      .then((sel) => {
+        const keys = gifts.filter((g) => sel.gift_ids.includes(g.id)).map((g) => g.gift_key);
+        setAllowed(keys);
+        if (keys.length && !keys.includes(giftKey)) setGiftKey(keys[0]);
+      })
+      .catch(() => setAllowed([]));
+  }, [pick, gifts]);
+
   /** Starting a session here is what makes the simulator usable on its own:
    * before this, it waited for somebody to open the arena first. */
   const startPicked = () =>
@@ -90,33 +126,40 @@ export default function Simulator() {
 
   const simulateGift = () =>
     run(async () => {
-      if (!active) return;
+      const target = await targetSession();
+      if (!target) return;
+      if (allowed.length && !allowed.includes(giftKey)) {
+        pushLog(`⚠️ "${giftKey}" não está na seleção de presentes desta batalha — não vale nada nela.`);
+        return;
+      }
       await api.post("/api/simulator/gift", {
-        session_id: active.session.id,
+        session_id: target.id,
         username,
         avatar_url: avatarUrl || undefined,
         gift_key: giftKey,
         quantity,
       });
-      pushLog(`${username} enviou ${giftKey} x${quantity} para ${active.battle.name}`);
+      pushLog(`${username} enviou ${giftKey} x${quantity} para ${target.name}`);
       refreshAfterEvent();
     });
 
   const simulateJoin = () =>
     run(async () => {
-      if (!active) return;
-      const result = await api.post<{ username: string }>(`/api/simulator/join?session_id=${active.session.id}`);
-      pushLog(`${result.username} entrou em ${active.battle.name}`);
+      const target = await targetSession();
+      if (!target) return;
+      const result = await api.post<{ username: string }>(`/api/simulator/join?session_id=${target.id}`);
+      pushLog(`${result.username} entrou em ${target.name}`);
     });
 
   const simulateStress = (count: number) =>
     run(async () => {
-      if (!active) return;
+      const target = await targetSession();
+      if (!target) return;
       await api.post(
-        `/api/simulator/stress?session_id=${active.session.id}&user_count=${count}`,
-        gifts.map((gift) => gift.gift_key),
+        `/api/simulator/stress?session_id=${target.id}&user_count=${count}`,
+        (allowed.length ? gifts.filter((g) => allowed.includes(g.gift_key)) : gifts).map((g) => g.gift_key),
       );
-      pushLog(`LIVE lotada em ${active.battle.name}: ${count} usuários`);
+      pushLog(`LIVE lotada em ${target.name}: ${count} usuários`);
       window.setTimeout(() => void loadActiveBattle(), 1500);
     });
 
@@ -126,7 +169,8 @@ export default function Simulator() {
     <div>
       <h1>Simulador</h1>
       <p style={{ color: "#9a9ac0", fontSize: 13 }}>
-        Os eventos usam o mesmo pipeline do TikTok LIVE e chegam somente à batalha ativa na arena/OBS.
+        Os eventos usam o mesmo pipeline do TikTok LIVE e vão para a batalha escolhida abaixo —
+        se ela não estiver rodando, é iniciada na hora.
       </p>
 
       <div className="card">
@@ -140,10 +184,12 @@ export default function Simulator() {
         {activeError && <p style={{ color: "#ff8080", fontSize: 13 }}>{activeError}</p>}
         <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}>
-            <label>Iniciar outra batalha e simular nela</label>
+            <label>Simular nesta batalha</label>
             <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ width: "100%" }}>
               {battles.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
+                <option key={b.id} value={b.id}>
+                  {b.name}{active?.battle.id === b.id ? "  (em andamento)" : ""}
+                </option>
               ))}
             </select>
           </div>
@@ -151,10 +197,19 @@ export default function Simulator() {
             ▶ Iniciar esta
           </button>
         </div>
-        <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 6 }}>
-          Iniciar deixa essa batalha como a ativa — é nela que a arena do OBS e o simulador
-          passam a trabalhar.
-        </p>
+        {pick && active && active.battle.id !== pick && (
+          <p style={{ color: "#e0a01b", fontSize: 12, marginTop: 6 }}>
+            A batalha em andamento é "{active.battle.name}". Simular aqui vai iniciar
+            "{battles.find((b) => b.id === pick)?.name}" e passar a transmissão para ela —
+            confira qual está aberta no OBS.
+          </p>
+        )}
+        {allowed.length > 0 && (
+          <p style={{ color: "#9a9ac0", fontSize: 12, marginTop: 6 }}>
+            Esta batalha aceita só {allowed.length} presente(s). Os demais são entregues e
+            ignorados pelo jogo.
+          </p>
+        )}
         {session && (
           <div className="row" style={{ marginTop: 10 }}>
             <span className="pill">Lado A: {Math.round(session.side_a_xp).toLocaleString("pt-BR")}</span>
@@ -179,9 +234,14 @@ export default function Simulator() {
           <div>
             <label>Presente</label>
             <select value={giftKey} onChange={(e) => setGiftKey(e.target.value)}>
-              {gifts.map((gift) => (
-                <option key={gift.id} value={gift.gift_key}>{gift.icon} {gift.name}</option>
-              ))}
+              {gifts.map((gift) => {
+                const counts = !allowed.length || allowed.includes(gift.gift_key);
+                return (
+                  <option key={gift.id} value={gift.gift_key}>
+                    {gift.icon} {gift.name}{counts ? "" : "  — não vale nesta batalha"}
+                  </option>
+                );
+              })}
             </select>
             <label>Quantidade</label>
             <input type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
