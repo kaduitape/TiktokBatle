@@ -29,15 +29,18 @@ import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
-import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FEED_Y, FLOOR_Y, XP_BAR_Y } from "./constants";
+import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, XP_BAR_Y } from "./constants";
+
+/* Read as functions, not constants: the reserved bottom strip is only known
+ * once the scene has the admin setting, which is after this module loads. */
 
 /** Just below the five feed lines, out of the way of the action. */
-const POWERS_LEGEND_Y = FEED_Y + 5 * 26 + 2;
+const powersLegendY = () => arenaLayout.feedY + 5 * 26 + 2;
 
 /** The voters stay in their team's lower field, well below the candidates. */
-const SOLDIER_FIELD_TOP_Y = FLOOR_Y - 480;
-const SOLDIER_FIELD_BOTTOM_Y = FLOOR_Y - 74;
-const SOLDIER_SPAWN_Y = FLOOR_Y - 108;
+const soldierFieldTopY = () => arenaLayout.floorY - 480;
+const soldierFieldBottomY = () => arenaLayout.floorY - 74;
+const soldierSpawnY = () => arenaLayout.floorY - 108;
 
 interface GiftSummary {
   name: string;
@@ -107,27 +110,27 @@ export default class TankWarScene extends Phaser.Scene {
   }
 
   create() {
-    this.matter.world.setBounds(0, CEILING_Y - 200, ARENA_WIDTH, FLOOR_Y - CEILING_Y + 460);
+    this.matter.world.setBounds(0, CEILING_Y - 200, ARENA_WIDTH, arenaLayout.floorY - CEILING_Y + 460);
 
     this.add.rectangle(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, ARENA_WIDTH, ARENA_HEIGHT, 0x11111a).setDepth(-10);
 
-    this.matter.add.rectangle(ARENA_WIDTH / 2, FLOOR_Y + 15, ARENA_WIDTH, 30, { isStatic: true });
+    this.matter.add.rectangle(ARENA_WIDTH / 2, arenaLayout.floorY + 15, ARENA_WIDTH, 30, { isStatic: true });
     this.matter.add.rectangle(-10, ARENA_HEIGHT / 2, 20, ARENA_HEIGHT, { isStatic: true });
     this.matter.add.rectangle(ARENA_WIDTH + 10, ARENA_HEIGHT / 2, 20, ARENA_HEIGHT, { isStatic: true });
-    this.matter.add.rectangle(CENTER_X, (CEILING_Y + FLOOR_Y) / 2, 10, FLOOR_Y - CEILING_Y, { isStatic: true });
+    this.matter.add.rectangle(CENTER_X, (CEILING_Y + arenaLayout.floorY) / 2, 10, arenaLayout.floorY - CEILING_Y, { isStatic: true });
 
     const divider = this.add.graphics().setDepth(5);
     divider.lineStyle(4, 0xffffff, 0.25);
-    for (let y = CEILING_Y; y < FLOOR_Y; y += 30) divider.lineBetween(CENTER_X, y, CENTER_X, y + 16);
+    for (let y = CEILING_Y; y < arenaLayout.floorY; y += 30) divider.lineBetween(CENTER_X, y, CENTER_X, y + 16);
 
     this.soldiers = new PvpAvatarManager(this, {
       scaleWithPower: false,
       showPowerLabel: false,
       // The voter balls always stay in the lower half of their own side.
       frictionAir: 0.002,
-      spawnY: SOLDIER_SPAWN_Y,
-      fieldYMin: SOLDIER_FIELD_TOP_Y,
-      fieldYMax: SOLDIER_FIELD_BOTTOM_Y,
+      spawnY: soldierSpawnY(),
+      fieldYMin: soldierFieldTopY(),
+      fieldYMax: soldierFieldBottomY(),
     });
     this.effects = new EffectsManager(this);
     this.missiles = new MissileManager(this, this.effects);
@@ -221,7 +224,7 @@ export default class TankWarScene extends Phaser.Scene {
       .join("   ");
 
     this.add
-      .text(24, POWERS_LEGEND_Y, `PODERES  ·  ${line}   ·   ★ especial`, {
+      .text(24, powersLegendY(), `PODERES  ·  ${line}   ·   ★ especial`, {
         fontFamily: "Segoe UI, sans-serif",
         fontSize: "17px",
         fontStyle: "bold",

@@ -289,6 +289,21 @@ da mesma imagem (inpainting / "editar esta imagem"), **prefira isso a gerar do
 zero** — mudar só o braço na mesma arte mantém a consistência que o gerador
 não consegue repetir sozinho.
 
+## Altura livre no rodapé (o chat do TikTok)
+
+O chat cobre a parte de baixo da tela, e tudo que a arena ancora no rodapé — o
+chão onde as bolinhas dos perfis param, o feed e a legenda dos poderes — ficava
+embaixo dele.
+
+Em **Admin → Editor de Arena** há um controle de **altura livre no rodapé**: o
+quanto reservar, em pixels da altura de 1920. O preview mostra a faixa coberta,
+e tudo que fica embaixo sobe junto, mantendo a mesma relação entre as partes. O
+padrão é **420 px** (~22% da altura), que é onde o chat costuma começar; os
+atalhos oferecem 0, 300, 420 e 560.
+
+Salve com **"Salvar e aplicar na arena"** para a fonte aberta no OBS já
+assumir a nova altura, sem precisar fechar e reabrir.
+
 ## Presentes por batalha
 
 Cada batalha pode aceitar só um conjunto de presentes. Em **Admin → Batalhas**,

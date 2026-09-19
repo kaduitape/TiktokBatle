@@ -19,7 +19,7 @@ import { ProjectileManager } from "./managers/ProjectileManager";
 import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
 import { EventSocket } from "./net/EventSocket";
-import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FLOOR_Y, XP_BAR_Y } from "./constants";
+import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, XP_BAR_Y } from "./constants";
 
 const BAR_WIDTH = ARENA_WIDTH / 2 - 40;
 const BAR_HEIGHT = 34;
@@ -58,18 +58,18 @@ export default class TeamBattleScene extends Phaser.Scene {
   }
 
   create() {
-    this.matter.world.setBounds(0, CEILING_Y - 200, ARENA_WIDTH, FLOOR_Y - CEILING_Y + 460);
+    this.matter.world.setBounds(0, CEILING_Y - 200, ARENA_WIDTH, arenaLayout.floorY - CEILING_Y + 460);
 
     this.add.rectangle(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, ARENA_WIDTH, ARENA_HEIGHT, 0x11111a).setDepth(-10);
 
-    this.matter.add.rectangle(ARENA_WIDTH / 2, FLOOR_Y + 15, ARENA_WIDTH, 30, { isStatic: true });
+    this.matter.add.rectangle(ARENA_WIDTH / 2, arenaLayout.floorY + 15, ARENA_WIDTH, 30, { isStatic: true });
     this.matter.add.rectangle(-10, ARENA_HEIGHT / 2, 20, ARENA_HEIGHT, { isStatic: true });
     this.matter.add.rectangle(ARENA_WIDTH + 10, ARENA_HEIGHT / 2, 20, ARENA_HEIGHT, { isStatic: true });
-    this.matter.add.rectangle(CENTER_X, (CEILING_Y + FLOOR_Y) / 2, 10, FLOOR_Y - CEILING_Y, { isStatic: true });
+    this.matter.add.rectangle(CENTER_X, (CEILING_Y + arenaLayout.floorY) / 2, 10, arenaLayout.floorY - CEILING_Y, { isStatic: true });
 
     const divider = this.add.graphics().setDepth(5);
     divider.lineStyle(4, 0xffffff, 0.25);
-    for (let y = CEILING_Y; y < FLOOR_Y; y += 30) divider.lineBetween(CENTER_X, y, CENTER_X, y + 16);
+    for (let y = CEILING_Y; y < arenaLayout.floorY; y += 30) divider.lineBetween(CENTER_X, y, CENTER_X, y + 16);
 
     this.add
       .text(24, 40, "A", { fontFamily: "Segoe UI", fontSize: "34px", fontStyle: "bold", color: "#ffd700" })

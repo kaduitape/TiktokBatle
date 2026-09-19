@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { arenaLayout } from "./game/constants";
 import type { BattleMode } from "../types/events";
 import PhaserGame from "./game/PhaserGame";
 
@@ -35,6 +36,17 @@ export default function ArenaPage() {
           battleId = battles[0].id;
         }
         const battle = await api.get<BattleOut>(`/api/battles/${battleId}`);
+
+        // Read before the scene builds: the ground, the feed and the legend
+        // are all measured from the bottom, and they have to know how much of
+        // it the live overlay covers before anything is drawn.
+        try {
+          const layout = await api.get<{ bottom_safe_px?: number }>("/api/settings/arena");
+          arenaLayout.bottomSafePx = Math.max(0, Number(layout?.bottom_safe_px ?? 0));
+        } catch {
+          /* keep the default layout rather than refusing to open the arena */
+        }
+
         const session = await api.post<SessionOut>(`/api/battles/${battleId}/start`);
         if (!cancelled) {
           setMode(battle.mode || "character");

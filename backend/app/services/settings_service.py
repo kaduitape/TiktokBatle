@@ -5,6 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Setting
 
 DEFAULTS: dict[str, dict[str, Any]] = {
+    # Layout of the 1080x1920 arena. The live overlay covers the bottom of the
+    # screen -- on TikTok that is the chat -- and everything the arena anchors
+    # to the bottom was landing under it. This strip is left empty so the
+    # ground, the feed and the legend stop where the chat begins.
+    "arena": {
+        "bottom_safe_px": 420,
+    },
     "audio_mixer": {
         "music": 30,
         "shots": 80,

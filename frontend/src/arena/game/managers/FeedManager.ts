@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { FEED_Y } from "../constants";
+import { arenaLayout } from "../constants";
 
 const MAX_LINES = 5;
 const LINE_HEIGHT = 26;
@@ -16,7 +16,7 @@ export class FeedManager {
    * compact (spec section 35: "não ocupar grande parte da arena"). */
   push(text: string) {
     const label = this.scene.add
-      .text(24, FEED_Y + MAX_LINES * LINE_HEIGHT, text, {
+      .text(24, arenaLayout.feedY + MAX_LINES * LINE_HEIGHT, text, {
         fontFamily: "Segoe UI, sans-serif",
         fontSize: "18px",
         color: "#ffffff",
@@ -35,7 +35,7 @@ export class FeedManager {
     }
 
     this.lines.forEach((line, idx) => {
-      const targetY = FEED_Y + idx * LINE_HEIGHT;
+      const targetY = arenaLayout.feedY + idx * LINE_HEIGHT;
       this.scene.tweens.add({ targets: line, y: targetY, duration: 220, ease: "Cubic.easeOut" });
     });
 

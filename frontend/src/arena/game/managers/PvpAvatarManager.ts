@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import type { PvpPlayerPayload } from "../../../types/events";
 import { bakeAvatarTexture } from "../avatarTexture";
-import { CEILING_Y, FLOOR_Y, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y } from "../constants";
+import { arenaLayout, CEILING_Y, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y } from "../constants";
 
 // Baked at more than twice the smallest on-screen size so the circle stays
 // crisp, and never below it, which is what made small avatars look ragged.
@@ -59,7 +59,7 @@ export class PvpAvatarManager {
       frictionAir: options.frictionAir ?? 0.015,
       spawnY: options.spawnY ?? SPAWN_TOP_Y,
       fieldYMin: options.fieldYMin ?? CEILING_Y,
-      fieldYMax: options.fieldYMax ?? FLOOR_Y - 200,
+      fieldYMax: options.fieldYMax ?? arenaLayout.floorY - 200,
     };
   }
 
@@ -149,7 +149,7 @@ export class PvpAvatarManager {
     const fieldYMin = Math.max(CEILING_Y + radius + SPAWN_GAP, this.options.fieldYMin);
     const fieldYMax = Math.max(
       fieldYMin,
-      Math.min(FLOOR_Y - 200 - radius - SPAWN_GAP, this.options.fieldYMax)
+      Math.min(arenaLayout.floorY - 200 - radius - SPAWN_GAP, this.options.fieldYMax)
     );
     const yMin = dropIn ? this.options.spawnY : fieldYMin;
     const yMax = dropIn ? this.options.spawnY : fieldYMax;

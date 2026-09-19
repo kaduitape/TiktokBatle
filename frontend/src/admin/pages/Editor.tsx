@@ -39,9 +39,15 @@ export default function Editor() {
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Bottom strip the live overlay covers, in arena pixels (of 1920). */
+  const [bottomSafe, setBottomSafe] = useState(0);
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    api
+      .get<{ bottom_safe_px?: number }>("/api/settings/arena")
+      .then((l) => setBottomSafe(Number(l?.bottom_safe_px ?? 0)))
+      .catch(() => setBottomSafe(0));
     api.get<Battle[]>("/api/battles").then((bs) => {
       setBattles(bs);
       if (bs[0]) setBattleId(bs[0].id);
@@ -73,6 +79,7 @@ export default function Editor() {
     setBusy(true);
     setNotice(null);
     try {
+      await api.put("/api/settings/arena", { bottom_safe_px: Math.round(bottomSafe) });
       if (charA) await api.put(`/api/characters/${charA.id}`, charA);
       if (charB) await api.put(`/api/characters/${charB.id}`, charB);
       if (apply) await api.post(`/api/battles/${battleId}/restart`);
@@ -135,6 +142,27 @@ export default function Editor() {
           }}
         >
           <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "#33334c" }} />
+          {bottomSafe > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: (bottomSafe / 1920) * PREVIEW_HEIGHT,
+                background: "repeating-linear-gradient(45deg, #2a2a3a, #2a2a3a 6px, #23232f 6px, #23232f 12px)",
+                borderTop: "1px dashed #6a6a8a",
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "center",
+                fontSize: 10,
+                color: "#9a9ac0",
+                paddingTop: 2,
+              }}
+            >
+              chat cobre aqui
+            </div>
+          )}
           <div style={{ position: "absolute", left: 6, top: 6, color: "#ffd700", fontWeight: 700, fontSize: 12 }}>A</div>
           <div style={{ position: "absolute", right: 6, top: 6, color: "#ffd700", fontWeight: 700, fontSize: 12 }}>B</div>
 
@@ -277,6 +305,41 @@ export default function Editor() {
             </div>
           )}
 
+          <div style={{ marginTop: 18, borderTop: "1px solid #2a2a3a", paddingTop: 14 }}>
+            <strong>Altura livre no rodapé (chat)</strong>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "4px 0 8px" }}>
+              O chat do TikTok cobre a parte de baixo da tela. Reserve esse pedaço e as
+              bolinhas, o feed e a legenda sobem juntos para ficarem acima dele.
+            </p>
+            <label>Reservado: {Math.round(bottomSafe)} px ({((bottomSafe / 1920) * 100).toFixed(0)}% da altura)</label>
+            <input
+              type="range"
+              min={0}
+              max={800}
+              step={10}
+              value={bottomSafe}
+              onChange={(e) => {
+                setBottomSafe(Number(e.target.value));
+                setDirty(true);
+              }}
+              style={{ width: "100%" }}
+            />
+            <div className="row">
+              {[0, 300, 420, 560].map((v) => (
+                <button
+                  key={v}
+                  className="secondary"
+                  onClick={() => {
+                    setBottomSafe(v);
+                    setDirty(true);
+                  }}
+                >
+                  {v === 0 ? "sem reserva" : `${v} px`}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="row" style={{ marginTop: 20 }}>
             <button onClick={() => save(true)} disabled={!dirty || busy}>
               Salvar e aplicar na arena
@@ -291,8 +354,8 @@ export default function Editor() {
             </p>
           )}
           <p style={{ color: "#6a6a8a", fontSize: 12, marginTop: 14 }}>
-            XP, ranking, feed e legenda ainda usam posições fixas nesta versão — apenas os dois personagens
-            são reposicionáveis pelo editor visual por enquanto.
+            O XP e o ranking ficam no topo e não se mexem. O chão, as bolinhas dos perfis, o feed
+            e a legenda acompanham a altura livre do rodapé definida acima.
           </p>
         </div>
       </div>

@@ -2,11 +2,11 @@ import Phaser from "phaser";
 import type { PlayerPayload } from "../../../types/events";
 import { bakeAvatarTexture } from "../avatarTexture";
 import {
+  arenaLayout,
   ARENA_WIDTH,
   AVATAR_DIAMETER,
   AVATAR_DIAMETER_GIANT,
   CEILING_Y,
-  FLOOR_Y,
   SIDE_A_ZONE,
   SIDE_B_ZONE,
   SPAWN_TOP_Y,
@@ -49,7 +49,7 @@ export class AvatarManager {
 
     const zone = player.team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
     const x = Phaser.Math.Between(zone.xMin + AVATAR_DIAMETER, zone.xMax - AVATAR_DIAMETER);
-    const y = dropIn ? SPAWN_TOP_Y : Phaser.Math.Between(CEILING_Y, FLOOR_Y - 200);
+    const y = dropIn ? SPAWN_TOP_Y : Phaser.Math.Between(CEILING_Y, arenaLayout.floorY - 200);
 
     const sprite = this.scene.matter.add.sprite(x, y, textureKey, undefined, {
       shape: { type: "circle", radius: AVATAR_DIAMETER / 2 },

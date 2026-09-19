@@ -21,7 +21,7 @@ import { ProjectileManager } from "./managers/ProjectileManager";
 import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
-import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FLOOR_Y } from "./constants";
+import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, } from "./constants";
 
 function resolveUrl(url: string | null): string | null {
   if (!url) return null;
@@ -58,21 +58,21 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.matter.world.setBounds(0, CEILING_Y - 200, ARENA_WIDTH, FLOOR_Y - CEILING_Y + 260 + 200);
+    this.matter.world.setBounds(0, CEILING_Y - 200, ARENA_WIDTH, arenaLayout.floorY - CEILING_Y + 260 + 200);
 
     this.add.rectangle(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, ARENA_WIDTH, ARENA_HEIGHT, 0x11111a).setDepth(-10);
 
     // floor
-    this.matter.add.rectangle(ARENA_WIDTH / 2, FLOOR_Y + 15, ARENA_WIDTH, 30, { isStatic: true });
+    this.matter.add.rectangle(ARENA_WIDTH / 2, arenaLayout.floorY + 15, ARENA_WIDTH, 30, { isStatic: true });
     // walls
     this.matter.add.rectangle(-10, ARENA_HEIGHT / 2, 20, ARENA_HEIGHT, { isStatic: true });
     this.matter.add.rectangle(ARENA_WIDTH + 10, ARENA_HEIGHT / 2, 20, ARENA_HEIGHT, { isStatic: true });
     // center divider so the two piles of avatars stay visually separated
-    this.matter.add.rectangle(CENTER_X, (CEILING_Y + FLOOR_Y) / 2, 10, FLOOR_Y - CEILING_Y, { isStatic: true });
+    this.matter.add.rectangle(CENTER_X, (CEILING_Y + arenaLayout.floorY) / 2, 10, arenaLayout.floorY - CEILING_Y, { isStatic: true });
 
     const divider = this.add.graphics().setDepth(5);
     divider.lineStyle(4, 0xffffff, 0.25);
-    for (let y = CEILING_Y; y < FLOOR_Y; y += 30) {
+    for (let y = CEILING_Y; y < arenaLayout.floorY; y += 30) {
       divider.lineBetween(CENTER_X, y, CENTER_X, y + 16);
     }
 
