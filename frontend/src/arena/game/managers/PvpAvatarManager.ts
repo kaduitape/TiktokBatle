@@ -31,6 +31,10 @@ export interface PvpAvatarOptions {
   /** Where a dropping-in fighter appears. Defaults to just above the screen;
    * a scene with a tall HUD sets it lower so arrivals never cross the bars. */
   spawnY?: number;
+  /** Vertical centre bounds for fighters restored from the live state. A
+   * scene can keep its whole army in a dedicated lower field. */
+  fieldYMin?: number;
+  fieldYMax?: number;
   /** Off keeps every avatar the same size: tank war fields uniform soldiers
    * whose bar drains, while PvP grows its fighters with their power. */
   scaleWithPower?: boolean;
@@ -52,6 +56,8 @@ export class PvpAvatarManager {
       showPowerLabel: options.showPowerLabel ?? true,
       frictionAir: options.frictionAir ?? 0.015,
       spawnY: options.spawnY ?? SPAWN_TOP_Y,
+      fieldYMin: options.fieldYMin ?? CEILING_Y,
+      fieldYMax: options.fieldYMax ?? FLOOR_Y - 200,
     };
   }
 
@@ -138,8 +144,13 @@ export class PvpAvatarManager {
     const radius = diameter / 2;
     const xMin = zone.xMin + radius + SPAWN_GAP;
     const xMax = zone.xMax - radius - SPAWN_GAP;
-    const yMin = dropIn ? this.options.spawnY : CEILING_Y + radius + SPAWN_GAP;
-    const yMax = dropIn ? this.options.spawnY : FLOOR_Y - 200 - radius - SPAWN_GAP;
+    const fieldYMin = Math.max(CEILING_Y + radius + SPAWN_GAP, this.options.fieldYMin);
+    const fieldYMax = Math.max(
+      fieldYMin,
+      Math.min(FLOOR_Y - 200 - radius - SPAWN_GAP, this.options.fieldYMax)
+    );
+    const yMin = dropIn ? this.options.spawnY : fieldYMin;
+    const yMax = dropIn ? this.options.spawnY : fieldYMax;
     let best = { x: (xMin + xMax) / 2, y: yMin, clearance: -Infinity };
 
     for (let attempt = 0; attempt < SPAWN_POSITION_ATTEMPTS; attempt += 1) {

@@ -359,7 +359,7 @@ class GamePipeline:
     async def _handle_comment(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
-        """Viewers enlist by typing a keyword in chat ("P" or "B" by default).
+        """Viewers enlist by typing a keyword in chat ("A" or "B" by default).
         Anything else is ordinary chatter and ignored."""
         if battle.mode not in ("tank_war", "team_pvp"):
             return {}
@@ -382,6 +382,8 @@ class GamePipeline:
 
         switched = not created and player.team != team
         player.team = team
+        if battle.mode == "tank_war":
+            player.team_selected = True
 
         queued = False
         if created or player.eliminated or player.power <= 0:
@@ -432,6 +434,19 @@ class GamePipeline:
     async def _handle_gift_tank_war(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
+        # In Eleições 2026 a viewer chooses their side explicitly in chat.
+        # Gifts from someone who has not typed A or B do not create a player,
+        # choose a random side, or change either candidate's score.
+        existing = (
+            await db.execute(
+                select(Player).where(
+                    Player.session_id == session.id, Player.user_id == event.user.id
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None or not existing.team_selected or existing.queued:
+            return {}
+
         gift = await self._resolve_gift(db, event)
         if gift is None or not gift.active:
             self._log_unknown_gift(event)
@@ -443,17 +458,8 @@ class GamePipeline:
         action = gift_rule_engine.resolve(gift, quantity, combo_count, combo_tier)
         config = await settings_service.get(db, "tank_war")
 
-        # A viewer who already enlisted by comment keeps that side. Somebody who
-        # sent a gift without ever typing A or B is dropped into a random team,
-        # so the gift still fights for somebody instead of being wasted.
-        existing = (
-            await db.execute(
-                select(Player).where(
-                    Player.session_id == session.id, Player.user_id == event.user.id
-                )
-            )
-        ).scalar_one_or_none()
-        team = existing.team if existing else tank_war_manager.random_team()
+        # The team is fixed by the participant's A/B comment.
+        team = existing.team
 
         player, created = await avatar_service.get_or_create_player(
             db,

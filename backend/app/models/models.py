@@ -220,6 +220,9 @@ class Player(Base):
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
     team: Mapped[str] = mapped_column(String, nullable=False)  # A|B
+    # Tank war/Eleições 2026 only: a voter must explicitly select A or B in
+    # chat before their profile can enter the field or fire a gift.
+    team_selected: Mapped[bool] = mapped_column(Boolean, default=False)
 
     damage_total: Mapped[float] = mapped_column(Float, default=0)
     heal_total: Mapped[float] = mapped_column(Float, default=0)
@@ -237,7 +240,7 @@ class Player(Base):
     # Waiting for a slot: the arena holds a fixed number of fighters, so
     # whoever arrives with the field full is kept here and walks in when
     # somebody is eliminated. A queued player is not drawn and cannot be
-    # bombed, but their gifts still land on the enemy.
+    # bombed and cannot fire until a slot opens.
     queued: Mapped[bool] = mapped_column(Boolean, default=False)
 
     last_interaction: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

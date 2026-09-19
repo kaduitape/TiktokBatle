@@ -114,7 +114,7 @@ export default function Battles() {
           {form.mode === "team_pvp" &&
             "Cada espectador vira um lutador com poder próprio: presentes fazem crescer e atacar, e quem zera o poder é eliminado."}
           {form.mode === "tank_war" &&
-            "Espectadores entram no time comentando no chat (P ou B). Os dois charges ficam fixos atirando: cada presente faz o tanque girar e acertar um inimigo aleatório, e quanto mais moedas o presente custa, mais forte o tiro."}
+            "Eleições 2026: comente A ou B para entrar no respectivo lado. Só quem escolheu um lado aparece; a bolinha do perfil dispara o presente contra o personagem rival."}
           {form.mode === "character" &&
             "Modo clássico: os presentes tiram/dão XP dos personagens do Lado A e Lado B."}
         </p>

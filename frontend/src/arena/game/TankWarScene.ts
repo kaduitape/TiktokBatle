@@ -34,8 +34,10 @@ import { ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, FEED_Y, FLOOR_Y, XP_BAR
 /** Just below the five feed lines, out of the way of the action. */
 const POWERS_LEGEND_Y = FEED_Y + 5 * 26 + 6;
 
-/** Below the boss bars and the join hints, so arrivals never cross the HUD. */
-const SOLDIER_SPAWN_Y = XP_BAR_Y + 140;
+/** The voters stay in their team's lower field, well below the candidates. */
+const SOLDIER_FIELD_TOP_Y = FLOOR_Y - 480;
+const SOLDIER_FIELD_BOTTOM_Y = FLOOR_Y - 74;
+const SOLDIER_SPAWN_Y = FLOOR_Y - 108;
 
 interface GiftSummary {
   name: string;
@@ -121,10 +123,11 @@ export default class TankWarScene extends Phaser.Scene {
     this.soldiers = new PvpAvatarManager(this, {
       scaleWithPower: false,
       showPowerLabel: false,
-      // A packed arena needs arrivals on the floor quickly, and starting below
-      // the scoreboard keeps them from raining across the boss bars.
+      // The voter balls always stay in the lower half of their own side.
       frictionAir: 0.002,
       spawnY: SOLDIER_SPAWN_Y,
+      fieldYMin: SOLDIER_FIELD_TOP_Y,
+      fieldYMax: SOLDIER_FIELD_BOTTOM_Y,
     });
     this.effects = new EffectsManager(this);
     this.missiles = new MissileManager(this, this.effects);
@@ -492,20 +495,25 @@ export default class TankWarScene extends Phaser.Scene {
   }
 
   private async handleTankShot(msg: TankShotMessage) {
-    const gunner = this.gunners[msg.shooter_side];
     const targetBoss = this.gunners[msg.target_side];
     const shooterName = (msg.player.nickname || msg.player.username).toUpperCase();
 
-    // The sender fights on the side they enlisted for, so make sure their own
-    // soldier is on the field too.
-    this.soldiers.spawnOrGet(msg.player, this.teamColors[msg.player.team], true);
+    // Only a voter who selected A or B can fire. Their own profile ball is
+    // the muzzle, so the shot visibly belongs to the person who sent the gift.
+    if (msg.player.queued) {
+      this.updateArmies(msg.armies);
+      return;
+    }
+    const shooter = await this.soldiers.spawnOrGet(msg.player, this.teamColors[msg.player.team], true);
+    const direction = msg.target_side === "A" ? -1 : 1;
+    const muzzle = {
+      x: shooter.sprite.x + direction * (shooter.diameter / 2),
+      y: shooter.sprite.y - shooter.diameter * 0.1,
+    };
 
-    const muzzle = gunner ? this.muzzleOf(gunner) : { x: CENTER_X, y: CEILING_Y };
     const impact = targetBoss
       ? { x: targetBoss.sprite.x, y: targetBoss.sprite.y }
       : { x: msg.target_side === "A" ? ARENA_WIDTH * 0.26 : ARENA_WIDTH * 0.74, y: CEILING_Y + 200 };
-
-    if (gunner) this.aimAndRecoil(gunner, impact.y, true);
 
     // Every gift does the same thing here, so the shell only distinguishes the
     // two things that actually differ: a special, and how much it costs.

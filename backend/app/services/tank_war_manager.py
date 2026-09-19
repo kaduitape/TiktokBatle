@@ -35,7 +35,7 @@ class TankWarManager:
 
     @staticmethod
     def team_for_comment(text: str, config: dict[str, Any]) -> str | None:
-        """Viewers pick a side by typing a keyword in chat (default "P" and
+        """Viewers pick a side by typing a keyword in chat (default "A" and
         "B"). Matching is case-insensitive and ignores surrounding spaces, but
         requires the whole message to be the keyword so ordinary chatter
         doesn't enlist people by accident."""
@@ -53,12 +53,6 @@ class TankWarManager:
         return "B" if team == "A" else "A"
 
     @staticmethod
-    def random_team() -> str:
-        """A viewer who sends a gift without ever picking a side is dropped
-        into one at random, so the gift still counts for somebody."""
-        return random.choice(("A", "B"))
-
-    @staticmethod
     def field_capacity(config: dict[str, Any]) -> int:
         return max(1, int(config.get("max_field_players", 100)))
 
@@ -71,6 +65,7 @@ class TankWarManager:
                 .select_from(Player)
                 .where(
                     Player.session_id == session_id,
+                    Player.team_selected.is_(True),
                     Player.queued.is_(False),
                     Player.eliminated.is_(False),
                     Player.power > 0,
@@ -88,7 +83,11 @@ class TankWarManager:
         return (
             await db.execute(
                 select(Player)
-                .where(Player.session_id == session_id, Player.queued.is_(True))
+                .where(
+                    Player.session_id == session_id,
+                    Player.team_selected.is_(True),
+                    Player.queued.is_(True),
+                )
                 .order_by(Player.created_at.asc())
                 .limit(1)
             )
@@ -103,6 +102,7 @@ class TankWarManager:
                 .select_from(Player)
                 .where(
                     Player.session_id == session_id,
+                    Player.team_selected.is_(True),
                     Player.queued.is_(True),
                     Player.created_at < player.created_at,
                 )
@@ -151,6 +151,7 @@ class TankWarManager:
                     .where(
                         Player.session_id == session_id,
                         Player.team == team,
+                        Player.team_selected.is_(True),
                         Player.queued.is_(False),
                         Player.eliminated.is_(False),
                         Player.power > 0,
@@ -189,6 +190,8 @@ class TankWarManager:
             "B": {"alive": 0, "recruited": 0, "queued": 0},
         }
         for p in players:
+            if not p.team_selected:
+                continue
             side = totals.get(p.team)
             if side is None:
                 continue

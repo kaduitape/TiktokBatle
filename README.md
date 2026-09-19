@@ -76,26 +76,29 @@ derrubam o chefão adversário.
   palavras-chave são configuráveis, e a mensagem tem que ser só a palavra —
   conversa normal no chat não recruta ninguém por acidente. Comentar a outra
   letra troca de lado.
-- **Quem presenteia sem ter escolhido lado cai num time sorteado**, para o
-  presente valer para alguém em vez de se perder.
+- **Primeiro escolha um lado**: presente de quem ainda não comentou `A` ou
+  `B` não entra na batalha nem causa dano. Assim, só aparece quem escolheu
+  votar em um dos dois times.
 - **Chefões com mais de 1 milhão de vida**: entram com **1.500.000** cada,
   então a partida é uma guerra de desgaste do time inteiro.
-- **Todo presente faz a mesma coisa: bater no time adversário.** A única
-  diferença entre eles é **quanto de dano** (o preço em moedas × quantidade ×
+- **A bolinha do perfil dispara contra o personagem rival.** Ela fica na
+  parte inferior do lado escolhido e o projétil sai dela, deixando claro quem
+  enviou o presente. Todo presente acerta o chefão adversário; a única diferença
+  é **quanto de dano** (o preço em moedas × quantidade ×
   `boss_damage_per_coin`) e se é **especial** — os especiais anunciam o nome de
   quem mandou e sacodem a tela mais forte. Não existe presente de cura neste
   modo.
 - **No máximo 100 em campo, somando os dois times.** Com a arena lotada, quem
   chega **fica na fila** (é anunciado com a posição, mas não aparece ainda) e
   **entra assim que alguém é eliminado** — a vaga aberta é preenchida na hora,
-  por ordem de chegada. Quem está na fila não pode ser bombardeado, mas os
-  presentes dele continuam batendo no chefão inimigo.
+  por ordem de chegada. Quem está na fila não pode ser bombardeado nem disparar
+  até entrar em campo.
 - **Os chefões revidam com bombas**: a cada ~12 segundos cada chefão lança uma
   bomba num espectador ativo do time adversário — o alvo sai dos 10 mais
   recentes a interagir, a bomba tira 150 de dano e derruba um soldado de vida
   cheia, que **sai do jogo** com explosão.
-- **Charges fixos, mas vivos**: respiram, balançam e dão um soco no ar; ao
-  atirar giram na direção do alvo e recuam, e tremem quando tomam um obus.
+- **Charges fixos, mas vivos**: respiram, balançam e dão um soco no ar;
+  revidam com suas bombas e tremem quando tomam um obus.
 - **Legenda dos poderes**: uma linha discreta no rodapé, abaixo do feed, lista
   cada presente com o dano que causa (★ marca os especiais). Ela é montada a
   partir dos presentes cadastrados, então muda sozinha quando você mexe em

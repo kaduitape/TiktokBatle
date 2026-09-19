@@ -25,6 +25,14 @@ async def build_state_sync(session_id: str) -> dict | None:
             .scalars()
             .all()
         )
+        # Eleições 2026 only draws voters who explicitly selected A or B.
+        # Legacy players created by gifts before this rule are kept in the
+        # database for history, but are not sent back into the arena.
+        visible_players = (
+            [p for p in players if p.team_selected]
+            if battle.mode == "tank_war"
+            else players
+        )
 
         def char_payload(c: Character) -> dict:
             return {
@@ -64,7 +72,7 @@ async def build_state_sync(session_id: str) -> dict | None:
             "side_a": char_payload(side_a),
             "side_b": char_payload(side_b),
             "xp": {"a": session.side_a_xp, "b": session.side_b_xp},
-            "teams": team_battle_manager.team_totals(players),
+            "teams": team_battle_manager.team_totals(visible_players),
             "players": [
                 {
                     "id": p.id,
@@ -79,6 +87,6 @@ async def build_state_sync(session_id: str) -> dict | None:
                     "eliminated": p.eliminated,
                     "queued": p.queued,
                 }
-                for p in players
+                for p in visible_players
             ],
         }
