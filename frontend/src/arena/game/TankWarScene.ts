@@ -205,8 +205,7 @@ export default class TankWarScene extends Phaser.Scene {
     }
   }
 
-  /** A quiet line under the feed listing what each gift is worth. Deliberately
-   * small and dim: it is a reference, not part of the action. */
+  /** A clear line under the feed listing what each gift is worth. */
   private buildPowersLegend(gifts: GiftSummary[]) {
     if (!gifts.length) return;
     const line = [...gifts]
@@ -221,14 +220,15 @@ export default class TankWarScene extends Phaser.Scene {
     this.add
       .text(24, POWERS_LEGEND_Y, `PODERES  ·  ${line}   ·   ★ especial`, {
         fontFamily: "Segoe UI, sans-serif",
-        fontSize: "15px",
-        color: "#cfcfe6",
+        fontSize: "17px",
+        fontStyle: "bold",
+        color: "#ffffff",
         stroke: "#000000",
-        strokeThickness: 3,
+        strokeThickness: 4,
         wordWrap: { width: ARENA_WIDTH - 48 },
         lineSpacing: 2,
       })
-      .setAlpha(0.62)
+      .setAlpha(0.92)
       .setDepth(86);
   }
 

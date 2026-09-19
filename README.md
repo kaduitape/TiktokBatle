@@ -117,7 +117,7 @@ Ajuste tudo na chave `tank_war` de **Settings** (`team_a_keyword`,
 moedas de cada presente em **Admin → Presentes**.
 
 > **A arte dos charges**: o modo já vem com a batalha "Guerra de Tanques" e os
-> dois personagens ("Lula" e "Bolsonaro") cadastrados, mas **sem imagem** —
+> dois personagens ("Time A" e "Time B") cadastrados, mas **sem imagem** —
 > suba os PNGs em **Admin → Personagens**. Até lá eles aparecem como
 > placeholder. Como o desenho é uma imagem única, a animação é do conjunto
 > (respiro, balanço, soco, giro, recuo): animar braço e rosto separadamente
@@ -244,7 +244,7 @@ digitar no painel:
 
 ```bash
 pip install Pillow
-python scripts/make_spritesheet.py pose1.png pose2.png pose3.png pose4.png -o lula.png
+python scripts/make_spritesheet.py pose1.png pose2.png pose3.png pose4.png -o time-a.png
 ```
 
 Ele recorta o vazio em volta de cada pose, deixa todas do mesmo tamanho,
@@ -312,7 +312,7 @@ backend — banco, Redis e API não ficam públicos.
 Na primeira subida o backend semeia automaticamente: 14 presentes padrão
 (8 da seção 12 + 6 ataques especiais das seções 20-25, cada um com seu preço
 em moedas), 5 tiers de combo, 4 personagens ("Lado A"/"Lado B" e
-"Lula"/"Bolsonaro") e três batalhas prontas — uma por modo — assim os três
+"Time A"/"Time B") e três batalhas prontas — uma por modo — assim os três
 modos funcionam imediatamente sem nenhum cadastro manual.
 
 ### Login do painel admin

@@ -59,9 +59,9 @@ DEFAULT_CHARACTERS = [
 # viewer base chips at it all stream long. The art itself is uploaded by the
 # admin in Admin -> Personagens; until then they render as placeholders.
 TANK_WAR_CHARACTERS = [
-    dict(name="Lula", team_color="#e01b24", pos_x=0.26, pos_y=0.30, scale=1.0, xp_max=1_500_000),
+    dict(name="Time A", team_color="#e01b24", pos_x=0.26, pos_y=0.30, scale=1.0, xp_max=1_500_000),
     dict(
-        name="Bolsonaro",
+        name="Time B",
         team_color="#2a7d2e",
         pos_x=0.74,
         pos_y=0.30,

@@ -7,6 +7,10 @@ const TEXTURE_SIZE = 128;
 const MIN_DIAMETER = 46;
 const MAX_DIAMETER = 190;
 const POWER_FOR_MIN = 100;
+/** A visible breathing room so profile circles do not begin on top of one
+ * another before Matter has a chance to resolve their collisions. */
+const SPAWN_GAP = 8;
+const SPAWN_POSITION_ATTEMPTS = 48;
 
 export interface Fighter {
   sprite: Phaser.Physics.Matter.Sprite;
@@ -81,9 +85,7 @@ export class PvpAvatarManager {
 
     const power = player.power ?? POWER_FOR_MIN;
     const diameter = this.diameterFor(power);
-    const zone = player.team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
-    const x = Phaser.Math.Between(zone.xMin + diameter, zone.xMax - diameter);
-    const y = dropIn ? this.options.spawnY : Phaser.Math.Between(CEILING_Y, FLOOR_Y - 200);
+    const { x, y } = this.findOpenSpawnPoint(player.team, diameter, dropIn);
 
     const sprite = this.scene.matter.add.sprite(x, y, textureKey, undefined, {
       shape: { type: "circle", radius: diameter / 2 },
@@ -126,6 +128,41 @@ export class PvpAvatarManager {
     };
     this.fighters.set(player.user_id, fighter);
     return fighter;
+  }
+
+  /** Finds an empty position before creating the physics body. Matter keeps
+   * the circles apart afterwards; this prevents the brief but distracting
+   * overlap that occurred when two entrants were assigned the same spot. */
+  private findOpenSpawnPoint(team: "A" | "B", diameter: number, dropIn: boolean) {
+    const zone = team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
+    const radius = diameter / 2;
+    const xMin = zone.xMin + radius + SPAWN_GAP;
+    const xMax = zone.xMax - radius - SPAWN_GAP;
+    const yMin = dropIn ? this.options.spawnY : CEILING_Y + radius + SPAWN_GAP;
+    const yMax = dropIn ? this.options.spawnY : FLOOR_Y - 200 - radius - SPAWN_GAP;
+    let best = { x: (xMin + xMax) / 2, y: yMin, clearance: -Infinity };
+
+    for (let attempt = 0; attempt < SPAWN_POSITION_ATTEMPTS; attempt += 1) {
+      const x = Phaser.Math.FloatBetween(xMin, xMax);
+      const y = dropIn ? yMin : Phaser.Math.FloatBetween(yMin, yMax);
+      let clearance = Infinity;
+
+      for (const fighter of this.fighters.values()) {
+        if (fighter.player.team !== team || !fighter.sprite.active) continue;
+        const dx = x - fighter.sprite.x;
+        const dy = y - fighter.sprite.y;
+        const distance = Math.hypot(dx, dy);
+        const required = radius + fighter.diameter / 2 + SPAWN_GAP;
+        clearance = Math.min(clearance, distance - required);
+      }
+
+      if (clearance >= 0) return { x, y };
+      if (clearance > best.clearance) best = { x, y, clearance };
+    }
+
+    // A full field can leave no completely empty point. Use the least crowded
+    // candidate; collisions still keep it from remaining overlapped.
+    return best;
   }
 
   private formatPower(power: number): string {
