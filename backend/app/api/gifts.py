@@ -4,15 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
 from app.core.database import get_db
-from app.models.models import ComboTier, Gift, TikTokGiftObservation
-from app.schemas.schemas import (
-    ComboTierIn,
-    ComboTierOut,
-    GiftIn,
-    GiftOut,
-    TikTokGiftObservationOut,
-)
+from app.models.models import ComboTier, Gift
+from app.schemas.schemas import ComboTierIn, ComboTierOut, GiftIn, GiftOut
 from app.services.gift_cache import gift_cache
+from app.services.gift_repository import gift_repository
 
 router = APIRouter(prefix="/api/gifts", tags=["gifts"])
 combo_router = APIRouter(prefix="/api/combo-tiers", tags=["combo-tiers"])
@@ -23,35 +18,34 @@ async def list_gifts(db: AsyncSession = Depends(get_db)):
     return (await db.execute(select(Gift))).scalars().all()
 
 
-@router.get("/tiktok-observations", response_model=list[TikTokGiftObservationOut])
+@router.get("/tiktok-observations")
 async def list_tiktok_gift_observations(
     db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
 ):
-    """Gifts received from a real LIVE, including ones not mapped yet."""
-    observations = (
-        await db.execute(select(TikTokGiftObservation).order_by(TikTokGiftObservation.last_seen_at.desc()))
-    ).scalars().all()
-    configured = {
-        gift.tiktok_gift_id: gift
-        for gift in (await db.execute(select(Gift).where(Gift.tiktok_gift_id.is_not(None)))).scalars().all()
-    }
-    return [
-        TikTokGiftObservationOut(
-            tiktok_gift_id=observation.tiktok_gift_id,
-            name=observation.name,
-            coins=observation.coins,
-            seen_count=observation.seen_count,
-            first_seen_at=observation.first_seen_at,
-            last_seen_at=observation.last_seen_at,
-            configured_gift_id=configured.get(observation.tiktok_gift_id).id
-            if observation.tiktok_gift_id in configured
-            else None,
-            configured_gift_key=configured.get(observation.tiktok_gift_id).gift_key
-            if observation.tiktok_gift_id in configured
-            else None,
+    """Gifts received from a real LIVE, including ones not mapped yet.
+
+    Kept in the shape the live setup wizard reads. The data now comes from the
+    automatic catalogue (live_gifts), which records the same gifts with more
+    detail -- see /api/live-gifts for the full view.
+    """
+    entries = await gift_repository.list_all(db)
+    rules = await gift_repository.rules_by_platform_id(db)
+    out = []
+    for entry in entries:
+        rule = rules.get((entry.platform, entry.platform_gift_id))
+        out.append(
+            {
+                "tiktok_gift_id": entry.platform_gift_id,
+                "name": entry.name or entry.platform_gift_id,
+                "coins": entry.diamond_value,
+                "seen_count": entry.times_received,
+                "first_seen_at": entry.first_seen_at,
+                "last_seen_at": entry.last_seen_at,
+                "configured_gift_id": rule.id if rule else None,
+                "configured_gift_key": rule.gift_key if rule else None,
+            }
         )
-        for observation in observations
-    ]
+    return out
 
 
 @router.post("", response_model=GiftOut)

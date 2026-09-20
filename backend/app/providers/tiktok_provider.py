@@ -105,12 +105,12 @@ class TikTokProvider(LiveEventProvider):
 
         @client.on(GiftEvent)
         async def _on_gift(event: Any) -> None:
-            # A streak emits intermediate events with a cumulative
-            # repeat_count. The final non-streaking event contains the whole
-            # quantity; processing intermediates would multiply damage.
-            if bool(getattr(event, "streaking", False)):
-                return
-
+            # Every gift event is forwarded, including the intermediate ones
+            # of a streak. Dropping them used to be how double counting was
+            # avoided, but it lost the whole combo whenever the closing event
+            # never arrived -- a viewer leaving mid-streak, a dropped socket.
+            # GiftStreakGuard now applies only the part of a streak that is
+            # new, so nothing is charged twice and nothing is lost.
             user = self._live_user(event)
             gift = getattr(event, "gift", None)
             gift_id = getattr(event, "gift_id", None) or getattr(gift, "id", None)
@@ -118,7 +118,9 @@ class TikTokProvider(LiveEventProvider):
                 logger.warning("ignored malformed TikTok gift event for session=%s", session_id)
                 return
 
-            quantity = max(1, self._as_int(getattr(event, "repeat_count", 1), default=1))
+            streaking = bool(getattr(event, "streaking", False))
+            repeat_count = self._as_int(getattr(event, "repeat_count", None), default=1)
+            quantity = max(1, repeat_count)
             coins = getattr(gift, "diamond_count", None)
             live_event = LiveEvent(
                 type="gift_received",
@@ -131,9 +133,19 @@ class TikTokProvider(LiveEventProvider):
                 timestamp=time.time(),
                 raw={
                     "provider": "tiktok",
+                    "platform_gift_id": str(gift_id),
                     "tiktok_gift_id": str(gift_id),
                     "coins": self._as_int(coins, default=0) if coins is not None else None,
-                    "streak": bool(getattr(event, "streaking", False)),
+                    "diamond_count": self._as_int(coins, default=0) if coins is not None else None,
+                    "gift_image_url": self._gift_image_url(gift),
+                    # The three fields the streak guard needs. repeat_end marks
+                    # the closing event of a combo; combo_id, when the library
+                    # provides it, identifies the streak exactly.
+                    "repeat_count": repeat_count,
+                    "repeat_end": bool(getattr(event, "repeat_end", False)) or not streaking,
+                    "combo_id": self._combo_id(event),
+                    "streak": streaking,
+                    "gift_type": self._as_int(getattr(gift, "type", None), default=0),
                 },
             )
             await self._emit_live_event(session_id, connection, live_event)
@@ -280,6 +292,15 @@ class TikTokProvider(LiveEventProvider):
         connection.state = "disconnected"
         connection.last_error = None
 
+    def client_for(self, session_id: str):
+        """The live client, when one is connected.
+
+        Only the catalogue sync uses this, to ask the room for its gift list.
+        Everything else stays behind the normalized LiveEvent.
+        """
+        connection = self._connections.get(session_id)
+        return connection.client if connection else None
+
     def is_connected(self, session_id: str) -> bool:
         connection = self._connections.get(session_id)
         return bool(connection and connection.state in {"connecting", "connected", "reconnecting"})
@@ -331,6 +352,36 @@ class TikTokProvider(LiveEventProvider):
             urls = getattr(image, "url_list", None) if image else None
             if urls:
                 return str(urls[0])
+        return None
+
+    @staticmethod
+    def _gift_image_url(gift: Any) -> str | None:
+        """TikTok moves the gift artwork between attributes across versions,
+        so try each known spelling rather than assuming one."""
+        for attr in ("image", "icon", "picture"):
+            image = getattr(gift, attr, None)
+            if image is None:
+                continue
+            urls = getattr(image, "url_list", None)
+            if urls:
+                return str(urls[0])
+            if isinstance(image, str) and image:
+                return image
+        return None
+
+    @staticmethod
+    def _combo_id(event: Any) -> str | None:
+        """The id that identifies a whole streak, if the library exposes one.
+
+        Only attributes that are stable for the life of a combo qualify. A
+        per-event id such as log_id must never be used here: it would make
+        every intermediate event of a streak look like a new streak, which is
+        precisely the 1+2+3+...+50 double counting the guard exists to stop.
+        """
+        for attr in ("group_id", "combo_id"):
+            value = getattr(event, attr, None)
+            if value not in (None, "", 0):
+                return str(value)
         return None
 
     @staticmethod

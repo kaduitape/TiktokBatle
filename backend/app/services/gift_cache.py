@@ -11,7 +11,7 @@ class GiftCache:
 
     def __init__(self) -> None:
         self._gifts: dict[str, Gift] = {}
-        self._tiktok_gifts: dict[str, Gift] = {}
+        self._platform_gifts: dict[tuple[str, str], Gift] = {}
         self._combo_tiers: list[ComboTier] = []
         # battle_id -> the gift ids that battle accepts. An empty set means the
         # battle was configured to accept nothing; a missing key means it was
@@ -26,8 +26,12 @@ class GiftCache:
     async def refresh(self, db: AsyncSession) -> None:
         gifts = (await db.execute(select(Gift))).scalars().all()
         self._gifts = {g.gift_key: g for g in gifts}
-        self._tiktok_gifts = {
-            g.tiktok_gift_id: g for g in gifts if g.tiktok_gift_id
+        # Rules are keyed by platform and platform gift id -- never by name,
+        # which gets translated and reworded between app versions.
+        self._platform_gifts = {
+            (g.platform or "tiktok", str(g.tiktok_gift_id)): g
+            for g in gifts
+            if g.tiktok_gift_id
         }
 
         tiers = (await db.execute(select(ComboTier))).scalars().all()
@@ -61,9 +65,12 @@ class GiftCache:
         else:
             self._battle_gifts.pop(battle_id, None)
 
+    def get_platform(self, platform: str, platform_gift_id: str) -> Gift | None:
+        """Resolve the ID the platform emitted, never an editable gift name."""
+        return self._platform_gifts.get((platform or "tiktok", str(platform_gift_id)))
+
     def get_tiktok(self, tiktok_gift_id: str) -> Gift | None:
-        """Resolve the ID emitted by TikTok, never an editable gift name."""
-        return self._tiktok_gifts.get(str(tiktok_gift_id))
+        return self.get_platform("tiktok", tiktok_gift_id)
 
     def combo_tier_for(self, count: int) -> ComboTier | None:
         tier = None

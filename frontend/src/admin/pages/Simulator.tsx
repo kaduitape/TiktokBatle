@@ -15,6 +15,17 @@ interface Gift {
   icon: string;
 }
 
+/** A gift captured automatically from the LIVE. Simulating one of these
+ * replays its real platform ID through the same path a live gift takes. */
+interface CatalogGift {
+  id: string;
+  platform_gift_id: string;
+  name: string | null;
+  diamond_value: number | null;
+  configured: boolean;
+  action_label: string | null;
+}
+
 interface Session {
   id: string;
   side_a_xp: number;
@@ -52,6 +63,8 @@ export default function Simulator() {
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
   const [arenaBackground, setArenaBackground] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<CatalogGift[]>([]);
+  const [catalogPick, setCatalogPick] = useState("");
 
   const pushLog = (line: string) => setLog((lines) => [line, ...lines].slice(0, 12));
 
@@ -114,6 +127,13 @@ export default function Simulator() {
       setGifts(items);
       if (items[0]) setGiftKey(items[0].gift_key);
     });
+    api
+      .get<CatalogGift[]>("/api/live-gifts")
+      .then((items) => {
+        setCatalog(items);
+        if (items[0]) setCatalogPick(items[0].id);
+      })
+      .catch(() => setCatalog([]));
   }, []);
 
   useEffect(() => {
@@ -170,6 +190,33 @@ export default function Simulator() {
     const result = await api.post<{ username: string; team: string | null }>(`/api/simulator/join?${query}`);
     pushLog(`${result.username} entrou${result.team ? ` no time ${result.team}` : ""} em ${target.name}`);
   });
+
+  /** Section 15: no separate path for the simulator. This sends the gift
+   * with its real platform ID, so it goes through the normalizer, the
+   * catalogue, the streak guard and the rule engine exactly as a live gift
+   * does -- which is what makes it a real test of a rule you just saved. */
+  const simulateCatalogGift = () =>
+    run(async () => {
+      const target = await targetSession();
+      if (!target) return;
+      const entry = catalog.find((c) => c.id === catalogPick);
+      if (!entry) return;
+      const result = await api.post<{ gift: string; quantity: number }>(
+        "/api/simulator/catalog-gift",
+        {
+          session_id: target.id,
+          catalog_id: entry.id,
+          username,
+          quantity,
+          avatar_url: avatarUrl || undefined,
+        },
+      );
+      pushLog(
+        `${username} enviou ${result.gift} x${result.quantity} (ID ${entry.platform_gift_id}) para ${target.name}` +
+          (entry.configured ? "" : " — ⚠️ este presente ainda não tem ação configurada"),
+      );
+      refreshAfterEvent();
+    });
 
   const simulateStress = (count: number) => run(async () => {
     const target = await targetSession();
@@ -337,6 +384,51 @@ export default function Simulator() {
           <button onClick={simulateGift} disabled={busy || !pick || !giftKey}>SIMULAR PRESENTE</button>
           <button className="secondary" onClick={simulateJoin} disabled={busy || !pick}>Simular novo espectador</button>
         </div>
+      </div>
+
+      <div className="card">
+        <h3>Simular presente da LIVE (catálogo automático)</h3>
+        <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+          Usa o ID real capturado da LIVE e passa pelo mesmo fluxo de um presente de verdade —
+          é assim que se testa uma regra recém-salva.
+        </p>
+        {!catalog.length && (
+          <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+            Nenhum presente capturado ainda. Envie um presente na LIVE (ou em Presentes da LIVE,
+            com o modo aprendizagem ligado) para ele aparecer aqui.
+          </p>
+        )}
+        {catalog.length > 0 && (
+          <>
+            <div className="form-grid">
+              <div>
+                <label>Presente capturado</label>
+                <select value={catalogPick} onChange={(e) => setCatalogPick(e.target.value)}>
+                  {catalog.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name ?? entry.platform_gift_id} · ID {entry.platform_gift_id}
+                      {entry.configured ? ` · ${entry.action_label}` : "  — sem ação"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Quantidade</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={quantity}
+                  onChange={(e) => setQuantity(Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="row" style={{ marginTop: 14 }}>
+              <button onClick={simulateCatalogGift} disabled={!session || !catalogPick}>
+                SIMULAR PRESENTE DA LIVE
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">

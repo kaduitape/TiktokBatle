@@ -305,3 +305,255 @@ button:hover {
   max-width: 100%;
   position: relative;
 }
+
+/* ---- Presentes da LIVE (captura automática) ---- */
+
+.capture-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid #262638;
+  background: #14141f;
+}
+
+.capture-banner.live {
+  border-color: #2f7d4f;
+  background: linear-gradient(90deg, #14201a, #16161f);
+}
+
+.capture-banner.learning {
+  border-color: #6a5acd;
+  background: linear-gradient(90deg, #1b1830, #16161f);
+}
+
+.capture-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+  animation: capture-pulse 1.6s infinite;
+  flex-shrink: 0;
+}
+
+.capture-dot.idle {
+  background: #6b7280;
+  animation: none;
+}
+
+@keyframes capture-pulse {
+  70% { box-shadow: 0 0 0 9px rgba(74, 222, 128, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+}
+
+/* The card that pops when a never-before-seen gift arrives. */
+.gift-discovery {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #e0a01b;
+  background: #221c10;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  animation: discovery-in 0.35s ease-out;
+}
+
+@keyframes discovery-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.gift-art {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #0f0f18;
+  border: 1px solid #2b2b40;
+  flex-shrink: 0;
+}
+
+.gift-art.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.gift-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.gift-filters .chip {
+  border: 1px solid #2f2f47;
+  background: #14141f;
+  color: #b6b6d0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gift-filters .chip.on {
+  border-color: #6a8bff;
+  background: #1c2340;
+  color: #fff;
+}
+
+.catalog-table td {
+  vertical-align: middle;
+}
+
+.tag-unset {
+  color: #e0a01b;
+}
+
+/* Drag a gift onto an action to configure it in one gesture. */
+.quick-config {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.drag-gift {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #2f2f47;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin: 0 6px 6px 0;
+  background: #14141f;
+  cursor: grab;
+  font-size: 13px;
+}
+
+.drag-gift:active {
+  cursor: grabbing;
+}
+
+.drop-action {
+  border: 1px dashed #3a3a55;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #b6b6d0;
+  transition: all 0.12s;
+}
+
+.drop-action.over {
+  border-color: #6a8bff;
+  border-style: solid;
+  background: #1c2340;
+  color: #fff;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 6, 12, 0.78);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.modal-card {
+  background: #16161f;
+  border: 1px solid #2f2f47;
+  border-radius: 12px;
+  padding: 22px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.modal-card h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+
+.radio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.radio-grid label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #262638;
+  border-radius: 7px;
+  cursor: pointer;
+  color: #cfcfe4;
+  margin: 0;
+}
+
+.radio-grid label.on {
+  border-color: #6a8bff;
+  background: #1c2340;
+  color: #fff;
+}
+
+.xp-presets button {
+  padding: 4px 10px;
+  font-size: 12px;
+  margin: 0 6px 6px 0;
+}
+
+/* The raw event tail. Admin-only: never rendered in the arena. */
+.event-monitor {
+  background: #0d0d14;
+  border: 1px solid #262638;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.event-monitor .ts {
+  color: #6b7280;
+}
+
+.event-monitor .gift {
+  color: #7dd3fc;
+}
+
+.event-monitor .unset {
+  color: #e0a01b;
+}
+
+.event-monitor pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #9a9ac0;
+  margin: 4px 0 10px 12px;
+}
+
+.nav-badge {
+  display: inline-block;
+  background: #dc2626;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  font-weight: 700;
+}

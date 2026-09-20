@@ -304,6 +304,106 @@ atalhos oferecem 0, 300, 420 e 560.
 Salve com **"Salvar e aplicar na arena"** para a fonte aberta no OBS já
 assumir a nova altura, sem precisar fechar e reabrir.
 
+## Captura automática de presentes
+
+Você nunca precisa cadastrar o ID de um presente do TikTok na mão, e nunca
+precisa alterar código para adicionar um presente novo. Com a LIVE conectada,
+**todo** presente recebido é detectado, normalizado e gravado num catálogo
+interno — e o ID vem sempre do evento recebido, nunca de uma lista fixa.
+
+O caminho é este:
+
+```
+TikTok LIVE → LiveEventProvider → evento GIFT → GiftNormalizer
+   → GiftCaptureService → GiftCatalogService → banco
+   → GiftRuleEngine → ação no jogo
+```
+
+Em **Admin → Presentes da LIVE** você vê o catálogo em tempo real. Quando um
+presente que o sistema nunca viu chega, ele aparece na hora, sem recarregar a
+página (WebSocket autenticado, separado das salas públicas da arena).
+
+### O que é capturado
+
+Do presente: `platform_gift_id`, nome, imagem, diamantes/moedas, `repeat_count`,
+`repeat_end` e `combo_id`. Do remetente: id, usuário, apelido e avatar.
+
+**Só é gravado o que o provider realmente mandou.** Campo que não veio fica
+`NULL` — "valor desconhecido" continua diferente de "valor zero". Um presente
+já conhecido nunca vira uma segunda linha: a chave única
+`(platform, platform_gift_id)` atualiza a linha existente e enriquece o que
+faltava.
+
+### A regra nunca depende do nome
+
+Nomes mudam, são traduzidos e existem em versões diferentes. A ação é sempre
+procurada por **plataforma + ID**:
+
+```
+platform = tiktok
+platform_gift_id = 5655   →  ação = Tiro, dano = 1
+```
+
+### Modo aprendizagem
+
+O botão **🧠 Modo aprendizagem** liga uma passagem em que tudo é registrado e
+**nada** acontece no jogo: sem dano, sem XP, sem ataque. É para você abrir uma
+live privada, mandar os presentes que quiser e descobrir os IDs com calma. O
+painel conta quantos presentes foram descobertos na sessão; **FINALIZAR
+APRENDIZAGEM** devolve o jogo ao normal.
+
+### Configurando um presente
+
+**CONFIGURAR** abre o formulário: lado alvo (Lado A, Lado B, próprio time, time
+adversário, ambos, global), ação (tiro, rajada, míssil, bomba, meteoro, ataque
+aéreo, raio, cura, super cura, escudo, evento especial, nenhuma), efeito de XP,
+animação e som. Em **Configuração rápida** dá para arrastar o presente até a
+ação e só confirmar dano e alvo.
+
+Presente capturado **sem** regra é registrado e mostrado como
+`⚠️ sem ação` — e **não** executa ataque nenhum. O menu lateral mostra quantos
+estão nessa situação.
+
+### Combos e streaks
+
+`Rosa x50` vale **50**, nunca `1+2+3+...+50`. O TikTok reporta um streak de
+duas formas — um evento final com o total, ou uma série crescente — e
+`GiftStreakGuard` aplica apenas a parte nova de cada evento. Os dois formatos
+chegam no mesmo resultado, e uma entrega repetida do mesmo evento não cobra de
+novo. Um presente sem nenhuma informação de streak é levado a sério como um
+presente novo: duas rosas separadas continuam sendo duas rosas.
+
+### Imagens
+
+A arte de cada presente é copiada para `/uploads/gifts/{plataforma}/{id}.webp`
+na primeira vez que ele aparece, então o jogo não fica dependendo da CDN do
+TikTok no meio da transmissão. Falha no download não impede nada: o painel usa
+a URL remota e, na falta dela, um ícone genérico.
+
+### Monitor de eventos
+
+**LIVE EVENT MONITOR** mostra os eventos recebidos com o JSON bruto sob
+demanda. É o que permite descobrir que uma versão da integração mudou de
+formato. É **só do admin** — nada de ID, JSON, configuração ou log técnico
+aparece na tela pública da LIVE, onde sai apenas `@usuario enviou 🌹 Rose` e a
+animação.
+
+### Simulador
+
+Em **Admin → Simulador**, *Simular presente da LIVE* manda um presente do
+catálogo com o ID real dele. Não existe caminho separado para o simulador: o
+evento passa pelo mesmo normalizador, catálogo, guarda de streak e rule engine
+que um presente de verdade — que é o que torna o teste de uma regra recém-salva
+confiável.
+
+### Sincronizar catálogo
+
+**⬇ Sincronizar catálogo** pede ao provider a lista de presentes da sala,
+quando essa versão do provider oferece isso, e reporta quantos foram
+adicionados, atualizados e mantidos. É um atalho, não um requisito: a captura
+por evento funciona sozinha e continua valendo mesmo que a sincronização não
+esteja disponível.
+
 ## Presentes por batalha
 
 Cada batalha pode aceitar só um conjunto de presentes. Em **Admin → Batalhas**,

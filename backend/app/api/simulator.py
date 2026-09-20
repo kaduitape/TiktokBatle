@@ -3,6 +3,7 @@ import random
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,8 @@ from app.schemas.schemas import (
 )
 from app.services.settings_service import settings_service
 from app.services.simulator_autopilot import simulator_autopilot
+from app.services.gift_catalog_service import gift_catalog_service
+from app.services.gift_repository import gift_repository
 
 router = APIRouter(prefix="/api/simulator", tags=["simulator"])
 
@@ -43,6 +46,92 @@ async def simulate_gift(body: SimulateGiftRequest, _: str = Depends(require_admi
         avatar_url=body.avatar_url,
     )
     return {"ok": True}
+
+
+class SimulateCatalogGiftRequest(BaseModel):
+    session_id: str
+    catalog_id: str
+    username: str = "teste"
+    quantity: int = 1
+    nickname: str | None = None
+    avatar_url: str | None = None
+
+
+@router.post("/catalog-gift")
+async def simulate_catalog_gift(
+    body: SimulateCatalogGiftRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    """Send a gift straight from the captured catalogue.
+
+    This is how a rule gets tested without waiting for a real viewer: it
+    replays the gift with its real platform ID, so it exercises the same
+    normalizer, catalogue, streak guard and rule engine a live gift does.
+    """
+    entry = await gift_repository.get_by_id(db, body.catalog_id)
+    if entry is None:
+        raise HTTPException(404, "presente não está no catálogo")
+
+    await simulation_provider.simulate_catalog_gift(
+        session_id=body.session_id,
+        user_id=f"sim-{body.username}",
+        username=body.username,
+        platform=entry.platform,
+        platform_gift_id=entry.platform_gift_id,
+        gift_name=entry.name or entry.platform_gift_id,
+        quantity=max(1, body.quantity),
+        diamond_value=entry.diamond_value,
+        image_url=gift_catalog_service.display_image(entry),
+        nickname=body.nickname or body.username,
+        avatar_url=body.avatar_url,
+    )
+    return {
+        "ok": True,
+        "gift": entry.name or entry.platform_gift_id,
+        "platform_gift_id": entry.platform_gift_id,
+        "quantity": max(1, body.quantity),
+    }
+
+
+class SimulatePlatformGiftRequest(BaseModel):
+    """A gift arriving straight from a platform, ID and all.
+
+    Used to rehearse discovery: it is the only way to see a never-before-seen
+    gift ID flow through capture without waiting for a real viewer to send one.
+    """
+
+    session_id: str
+    platform_gift_id: str
+    platform: str = "tiktok"
+    name: str | None = None
+    image_url: str | None = None
+    diamond_value: int | None = None
+    username: str = "teste"
+    quantity: int = 1
+    #: Set to replay an intermediate streak event rather than a complete gift.
+    repeat_end: bool = True
+
+
+@router.post("/platform-gift")
+async def simulate_platform_gift(
+    body: SimulatePlatformGiftRequest, _: str = Depends(require_admin)
+):
+    await simulation_provider.simulate_catalog_gift(
+        session_id=body.session_id,
+        user_id=f"sim-{body.username}",
+        username=body.username,
+        platform=body.platform,
+        platform_gift_id=body.platform_gift_id,
+        gift_name=body.name or body.platform_gift_id,
+        quantity=max(1, body.quantity),
+        diamond_value=body.diamond_value,
+        image_url=body.image_url,
+        nickname=body.username,
+        avatar_url=f"https://i.pravatar.cc/150?u={body.username}",
+        repeat_end=body.repeat_end,
+    )
+    return {"ok": True, "platform_gift_id": body.platform_gift_id}
 
 
 @router.post("/join")

@@ -6,6 +6,7 @@ import Dashboard from "./admin/pages/Dashboard";
 import Editor from "./admin/pages/Editor";
 import Gifts from "./admin/pages/Gifts";
 import Live from "./admin/pages/Live";
+import LiveGifts from "./admin/pages/LiveGifts";
 import Login from "./admin/pages/Login";
 import Music from "./admin/pages/Music";
 import Ranking from "./admin/pages/Ranking";
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="battles" element={<Battles />} />
           <Route path="characters" element={<Characters />} />
           <Route path="gifts" element={<Gifts />} />
+          <Route path="live-gifts" element={<LiveGifts />} />
           <Route path="editor" element={<Editor />} />
           <Route path="music" element={<Music />} />
           <Route path="sprites" element={<SpriteStudio />} />
