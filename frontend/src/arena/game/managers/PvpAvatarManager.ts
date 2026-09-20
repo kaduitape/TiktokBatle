@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import type { PvpPlayerPayload } from "../../../types/events";
 import { bakeAvatarTexture } from "../avatarTexture";
-import { arenaLayout, CEILING_Y, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y } from "../constants";
+import { arenaLayout, CEILING_Y, CENTER_X, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y } from "../constants";
 
 // Baked at more than twice the smallest on-screen size so the circle stays
 // crisp, and never below it, which is what made small avatars look ragged.
@@ -13,6 +13,8 @@ const POWER_FOR_MIN = 100;
  * another before Matter has a chance to resolve their collisions. */
 const SPAWN_GAP = 8;
 const SPAWN_POSITION_ATTEMPTS = 48;
+const ENTRY_DIAMETER = 150;
+const ENTRY_DURATION_MS = 720;
 
 export interface Fighter {
   sprite: Phaser.Physics.Matter.Sprite;
@@ -23,6 +25,9 @@ export interface Fighter {
   power: number;
   peakPower: number;
   diameter: number;
+  entering: boolean;
+  pendingAttackGrowth: number;
+  wanderEvent?: Phaser.Time.TimerEvent;
 }
 
 export interface PvpAvatarOptions {
@@ -41,6 +46,11 @@ export interface PvpAvatarOptions {
    * whose bar drains, while PvP grows its fighters with their power. */
   scaleWithPower?: boolean;
   showPowerLabel?: boolean;
+  /** Tank war presents a new voter in the centre before it takes its place
+   * among its side's troops. Other modes retain their existing drop-in. */
+  centerEntrance?: boolean;
+  /** Small, infrequent impulses keep an army looking alive after it settles. */
+  idleWander?: boolean;
 }
 
 /** Manages the circular avatars that fight in the arena: an HP bar that
@@ -56,6 +66,8 @@ export class PvpAvatarManager {
     this.options = {
       scaleWithPower: options.scaleWithPower ?? true,
       showPowerLabel: options.showPowerLabel ?? true,
+      centerEntrance: options.centerEntrance ?? false,
+      idleWander: options.idleWander ?? false,
       frictionAir: options.frictionAir ?? 0.015,
       spawnY: options.spawnY ?? SPAWN_TOP_Y,
       fieldYMin: options.fieldYMin ?? CEILING_Y,
@@ -93,7 +105,12 @@ export class PvpAvatarManager {
 
     const power = player.power ?? POWER_FOR_MIN;
     const diameter = this.diameterFor(power);
-    const { x, y } = this.findOpenSpawnPoint(player.team, diameter, dropIn);
+    const destination = this.findOpenSpawnPoint(player.team, diameter, dropIn);
+    const enterFromCenter = dropIn && this.options.centerEntrance;
+    const x = enterFromCenter ? CENTER_X : destination.x;
+    const y = enterFromCenter
+      ? Math.max(CEILING_Y + 220, this.options.fieldYMin - 100)
+      : destination.y;
 
     const sprite = this.scene.matter.add.sprite(x, y, textureKey, undefined, {
       shape: { type: "circle", radius: diameter / 2 },
@@ -133,9 +150,77 @@ export class PvpAvatarManager {
       power,
       peakPower: power,
       diameter,
+      entering: enterFromCenter,
+      pendingAttackGrowth: 0,
     };
     this.fighters.set(player.user_id, fighter);
+    if (enterFromCenter) this.playCenterEntrance(fighter, destination);
+    if (this.options.idleWander) this.startIdleWander(fighter);
     return fighter;
+  }
+
+  /** A new tank-war voter is deliberately introduced in the centre at a
+   * readable size, then shrinks as it travels to its team. The Matter body is
+   * moved with the artwork so it cannot snap back on the next physics tick. */
+  private playCenterEntrance(fighter: Fighter, destination: { x: number; y: number }): void {
+    const { sprite, diameter } = fighter;
+    const body = sprite.body as MatterJS.BodyType | undefined;
+    const baseScale = sprite.scale;
+    const entryScale = baseScale * (ENTRY_DIAMETER / diameter);
+    sprite.setScale(entryScale);
+    if (body) (body as any).isSensor = true;
+
+    const path = { x: sprite.x, y: sprite.y };
+    this.scene.tweens.add({
+      targets: path,
+      x: destination.x,
+      y: destination.y,
+      duration: ENTRY_DURATION_MS,
+      ease: "Cubic.easeInOut",
+      onUpdate: () => {
+        sprite.setPosition(path.x, path.y);
+        if (body) this.scene.matter.body.setPosition(body, new Phaser.Math.Vector2(path.x, path.y));
+      },
+    });
+    this.scene.tweens.add({
+      targets: sprite,
+      scale: baseScale,
+      duration: ENTRY_DURATION_MS,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        if (!sprite.active) return;
+        if (body) {
+          (body as any).isSensor = false;
+          this.scene.matter.body.setVelocity(body, { x: Phaser.Math.FloatBetween(-0.35, 0.35), y: 0 });
+        }
+        fighter.entering = false;
+        if (fighter.pendingAttackGrowth) {
+          const pixels = fighter.pendingAttackGrowth;
+          fighter.pendingAttackGrowth = 0;
+          this.growOnAttack(fighter.player.user_id, pixels);
+        }
+      },
+    });
+  }
+
+  /** Matter makes the army obey the floor and divider. A tiny nudge every few
+   * seconds gives the settled circles organic motion without turning them
+   * into a chaotic pinball field. */
+  private startIdleWander(fighter: Fighter): void {
+    fighter.wanderEvent = this.scene.time.addEvent({
+      delay: Phaser.Math.Between(1300, 2600),
+      loop: true,
+      callback: () => {
+        if (!fighter.sprite.active || fighter.entering) return;
+        const body = fighter.sprite.body as MatterJS.BodyType | undefined;
+        if (!body) return;
+        const velocity = (body as any).velocity || { x: 0, y: 0 };
+        this.scene.matter.body.setVelocity(body, {
+          x: Phaser.Math.Clamp(velocity.x + Phaser.Math.FloatBetween(-0.45, 0.45), -0.9, 0.9),
+          y: Phaser.Math.Clamp(velocity.y + Phaser.Math.FloatBetween(-0.08, 0.02), -0.22, 0.22),
+        });
+      },
+    });
   }
 
   /** Finds an empty position before creating the physics body. Matter keeps
@@ -194,6 +279,28 @@ export class PvpAvatarManager {
     if (Math.abs(target - fighter.diameter) > 3) {
       this.resize(fighter, target);
     }
+  }
+
+  /** Each tank-war shot earns its owner one physical pixel. It is intentionally
+   * independent of HP/power: firing feels rewarding even though enemy bombs
+   * can later reduce that soldier's health. */
+  growOnAttack(userId: string, pixels = 1): void {
+    const fighter = this.fighters.get(userId);
+    if (!fighter) return;
+    if (fighter.entering) {
+      fighter.pendingAttackGrowth += pixels;
+      return;
+    }
+    const next = Phaser.Math.Clamp(fighter.diameter + pixels, MIN_DIAMETER, MAX_DIAMETER);
+    if (next <= fighter.diameter) return;
+    this.resize(fighter, next);
+    this.scene.tweens.add({
+      targets: fighter.sprite,
+      scale: fighter.sprite.scale * 1.08,
+      duration: 90,
+      yoyo: true,
+      ease: "Quad.easeOut",
+    });
   }
 
   private resize(fighter: Fighter, diameter: number): void {
@@ -256,6 +363,7 @@ export class PvpAvatarManager {
   private destroyFighter(userId: string): void {
     const fighter = this.fighters.get(userId);
     if (!fighter) return;
+    fighter.wanderEvent?.remove(false);
     fighter.sprite.destroy();
     fighter.hpBar.destroy();
     fighter.hpBarBg.destroy();

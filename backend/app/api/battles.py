@@ -5,7 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_admin
 from app.core.database import get_db
 from app.models.models import Battle, BattleEvent, BattleGift, BattleSession, Character, Gift, Player
-from app.schemas.schemas import ActiveBattleOut, BattleGiftsIn, BattleIn, BattleOut, SessionOut
+from app.schemas.schemas import (
+    ActiveBattleOut,
+    BattleBackgroundIn,
+    BattleGiftsIn,
+    BattleIn,
+    BattleOut,
+    SessionOut,
+)
 from app.services import arena_analysis
 from app.services.battle_manager import battle_manager
 from app.services.gift_cache import gift_cache
@@ -109,6 +116,39 @@ async def update_battle(
         setattr(battle, k, v)
     await db.commit()
     await db.refresh(battle)
+    return battle
+
+
+@router.put("/{battle_id}/background", response_model=BattleOut)
+async def update_battle_background(
+    battle_id: str,
+    body: BattleBackgroundIn,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    """Swap the full-arena backdrop without disturbing a live session."""
+    battle = await db.get(Battle, battle_id)
+    if not battle:
+        raise HTTPException(404, "battle not found")
+    battle.background_url = body.background_url
+    await db.commit()
+    await db.refresh(battle)
+
+    # A connected OBS source must see the new backdrop now, rather than only
+    # after someone manually reloads it. Re-publish every live session for
+    # this battle; there is normally one, but this is safe for all of them.
+    sessions = (
+        await db.execute(
+            select(BattleSession).where(
+                BattleSession.battle_id == battle_id,
+                BattleSession.status.in_(ACTIVE_SESSION_STATUSES),
+            )
+        )
+    ).scalars().all()
+    for session in sessions:
+        state = await build_state_sync(session.id)
+        if state:
+            await connection_manager.broadcast(session.id, state)
     return battle
 
 

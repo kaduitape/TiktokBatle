@@ -121,6 +121,8 @@ export default class TankWarScene extends Phaser.Scene {
       spawnY: soldierSpawnY(),
       fieldYMin: soldierFieldTopY(),
       fieldYMax: soldierFieldBottomY(),
+      centerEntrance: true,
+      idleWander: true,
     });
     this.effects = new EffectsManager(this);
     this.missiles = new MissileManager(this, this.effects);
@@ -467,6 +469,10 @@ export default class TankWarScene extends Phaser.Scene {
       return;
     }
     const shooter = await this.soldiers.spawnOrGet(msg.player, this.teamColors[msg.player.team], true);
+    // A tank-war soldier grows only a hair per shot (one pixel), matching the
+    // reference's accumulating participation signal without obscuring the
+    // rest of the army.
+    this.soldiers.growOnAttack(msg.player.user_id, 1);
     const direction = msg.target_side === "A" ? -1 : 1;
     const muzzle = {
       x: shooter.sprite.x + direction * (shooter.diameter / 2),

@@ -1,10 +1,24 @@
+import os
 import random
+import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
+from app.core.config import settings
+from app.core.database import get_db
+from app.models.models import Battle, BattleSession, SimulatorProfile
 from app.providers.simulation_provider import simulation_provider
-from app.schemas.schemas import SimulateGiftRequest
+from app.schemas.schemas import (
+    SimulateGiftRequest,
+    SimulatorAutoStartIn,
+    SimulatorProfileIn,
+    SimulatorProfileOut,
+)
+from app.services.settings_service import settings_service
+from app.services.simulator_autopilot import simulator_autopilot
 
 router = APIRouter(prefix="/api/simulator", tags=["simulator"])
 
@@ -32,16 +46,51 @@ async def simulate_gift(body: SimulateGiftRequest, _: str = Depends(require_admi
 
 
 @router.post("/join")
-async def simulate_join(session_id: str, username: str | None = None, _: str = Depends(require_admin)):
-    name = username or random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999))
+async def simulate_join(
+    session_id: str,
+    username: str | None = None,
+    profile_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    """Make a manual simulated arrival visible in every game mode.
+
+    Tank war has a deliberate extra rule: real viewers choose A/B in chat.
+    The simulator mirrors that chat action immediately after the join, so its
+    new profile enters an actual team instead of being an invisible viewer.
+    """
+    profile = await db.get(SimulatorProfile, profile_id) if profile_id else None
+    if profile_id and profile is None:
+        raise HTTPException(404, "perfil do simulador nÃ£o encontrado")
+    session = await db.get(BattleSession, session_id)
+    battle = await db.get(Battle, session.battle_id) if session else None
+    if session is None or battle is None:
+        raise HTTPException(404, "sessÃ£o da batalha nÃ£o encontrada")
+    name = username or (
+        f"{profile.name}_{random.randint(1, 9999)}" if profile else random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999))
+    )
+    avatar_url = profile.avatar_url if profile else f"https://i.pravatar.cc/150?u={name}"
     await simulation_provider.simulate_join(
         session_id=session_id,
         user_id=f"sim-{name}",
         username=name,
         nickname=name,
-        avatar_url=f"https://i.pravatar.cc/150?u={name}",
+        avatar_url=avatar_url,
     )
-    return {"ok": True, "username": name}
+    team = None
+    if battle and battle.mode == "tank_war":
+        tank = await settings_service.get(db, "tank_war")
+        team = random.choice(["A", "B"])
+        word = str(tank.get("team_a_keyword" if team == "A" else "team_b_keyword", team))
+        await simulation_provider.simulate_comment(
+            session_id=session_id,
+            user_id=f"sim-{name}",
+            username=name,
+            nickname=name,
+            avatar_url=avatar_url,
+            text=word,
+        )
+    return {"ok": True, "username": name, "team": team}
 
 
 @router.post("/comment")
@@ -64,11 +113,20 @@ async def simulate_comment(
 
 @router.post("/stress")
 async def simulate_stress(
-    session_id: str, gift_keys: list[str], user_count: int = 100, _: str = Depends(require_admin)
+    session_id: str,
+    gift_keys: list[str],
+    user_count: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
 ):
     """Section 46: SIMULAR LIVE LOTADA. Generates a burst of joins and
     gifts through the normal pipeline so FPS/latency/queue depth can be
     observed under load."""
+    session = await db.get(BattleSession, session_id)
+    battle = await db.get(Battle, session.battle_id) if session else None
+    if session is None or battle is None:
+        raise HTTPException(404, "sessÃ£o da batalha nÃ£o encontrada")
+    tank = await settings_service.get(db, "tank_war") if battle and battle.mode == "tank_war" else {}
     for i in range(user_count):
         name = f"stress{i}_{random.randint(1, 999999)}"
         await simulation_provider.simulate_join(
@@ -78,6 +136,18 @@ async def simulate_stress(
             nickname=name,
             avatar_url=f"https://i.pravatar.cc/150?u={name}",
         )
+        if battle and battle.mode == "tank_war":
+            await simulation_provider.simulate_comment(
+                session_id=session_id,
+                user_id=f"sim-{name}",
+                username=name,
+                nickname=name,
+                avatar_url=f"https://i.pravatar.cc/150?u={name}",
+                text=random.choice([
+                    str(tank.get("team_a_keyword", "A")),
+                    str(tank.get("team_b_keyword", "B")),
+                ]),
+            )
         if gift_keys:
             await simulation_provider.simulate_gift(
                 session_id=session_id,
@@ -89,3 +159,82 @@ async def simulate_stress(
                 avatar_url=f"https://i.pravatar.cc/150?u={name}",
             )
     return {"ok": True, "spawned": user_count}
+
+
+@router.get("/profiles", response_model=list[SimulatorProfileOut])
+async def list_profiles(db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    return (await db.execute(select(SimulatorProfile).order_by(SimulatorProfile.created_at.desc()))).scalars().all()
+
+
+@router.post("/profiles", response_model=SimulatorProfileOut)
+async def create_profile(
+    body: SimulatorProfileIn,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    profile = SimulatorProfile(**body.model_dump())
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+
+@router.delete("/profiles/{profile_id}")
+async def delete_profile(
+    profile_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    profile = await db.get(SimulatorProfile, profile_id)
+    if not profile:
+        raise HTTPException(404, "perfil do simulador nÃ£o encontrado")
+    await db.delete(profile)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/upload")
+async def upload_simulator_image(file: UploadFile, _: str = Depends(require_admin)):
+    """Stores a simulator face or arena backdrop beside the other assets."""
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(415, "envie uma imagem")
+    os.makedirs(settings.upload_dir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".png"
+    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        ext = ".png"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    path = os.path.join(settings.upload_dir, filename)
+    with open(path, "wb") as stored:
+        stored.write(await file.read())
+    return {"url": f"/uploads/{filename}"}
+
+
+@router.get("/auto")
+async def auto_status(session_id: str, _: str = Depends(require_admin)):
+    return {"session_id": session_id, "running": simulator_autopilot.is_running(session_id)}
+
+
+@router.post("/auto/start")
+async def start_auto(
+    body: SimulatorAutoStartIn,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    session = await db.get(BattleSession, body.session_id)
+    if session is None or session.status == "finished":
+        raise HTTPException(409, "a sessÃ£o da batalha nÃ£o estÃ¡ ativa")
+    profiles = (
+        await db.execute(
+            select(SimulatorProfile).where(SimulatorProfile.id.in_(body.profile_ids))
+            if body.profile_ids
+            else select(SimulatorProfile)
+        )
+    ).scalars().all()
+    if body.profile_ids and len(profiles) != len(set(body.profile_ids)):
+        raise HTTPException(400, "um ou mais perfis do simulador nÃ£o existem")
+    await simulator_autopilot.start(body.session_id, profiles)
+    return {"ok": True, "running": True, "profiles": len(profiles)}
+
+
+@router.post("/auto/stop")
+async def stop_auto(session_id: str, _: str = Depends(require_admin)):
+    await simulator_autopilot.stop(session_id)
+    return {"ok": True, "running": False}
