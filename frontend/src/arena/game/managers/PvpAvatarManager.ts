@@ -19,6 +19,7 @@ export interface Fighter {
   hpBarBg: Phaser.GameObjects.Rectangle;
   hpBar: Phaser.GameObjects.Rectangle;
   powerLabel: Phaser.GameObjects.Text;
+  nameLabel: Phaser.GameObjects.Text;
   player: PvpPlayerPayload;
   power: number;
   peakPower: number;
@@ -46,6 +47,25 @@ export interface PvpAvatarOptions {
 /** Manages the circular avatars that fight in the arena: an HP bar that
  * drains above each one, and (in PvP) a diameter that grows with the
  * owner's power, the way the reference battles do. */
+/** The viewer's name, drawn under their photo: white with a black shadow so
+ * it stays readable over any arena background. */
+const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: "Segoe UI, sans-serif",
+  fontSize: "18px",
+  fontStyle: "bold",
+  color: "#ffffff",
+  stroke: "#000000",
+  strokeThickness: 4,
+  shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 4, fill: true },
+};
+
+/** Long handles would cover the neighbours; trim rather than shrink, so every
+ * name stays the same readable size. */
+function displayName(player: PvpPlayerPayload): string {
+  const raw = (player.nickname || player.username || "").trim();
+  return raw.length > 12 ? `${raw.slice(0, 11)}…` : raw;
+}
+
 export class PvpAvatarManager {
   private scene: Phaser.Scene;
   private fighters = new Map<string, Fighter>();
@@ -77,6 +97,36 @@ export class PvpAvatarManager {
 
   /** Logarithmic so a 30x power lead reads as "much bigger" without a single
    * whale covering the whole arena. */
+  /** Re-bake and swap the sprite's texture when the person's photo changed. */
+  private async refreshTexture(
+    fighter: Fighter,
+    player: PvpPlayerPayload,
+    teamColor: string,
+  ): Promise<void> {
+    const current = fighter.player.avatar_url ?? null;
+    const next = player.avatar_url ?? null;
+    fighter.nameLabel.setText(displayName(player));
+    if (next === current) {
+      fighter.player = player;
+      return;
+    }
+
+    const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
+    const textureKey = await bakeAvatarTexture(
+      this.scene,
+      next,
+      teamColor,
+      letter,
+      TEXTURE_SIZE,
+      player.username,
+    );
+    // The fighter may have been eliminated while the texture was baking.
+    if (!this.fighters.has(player.user_id) || !fighter.sprite.active) return;
+    fighter.sprite.setTexture(textureKey);
+    fighter.sprite.setDisplaySize(fighter.diameter, fighter.diameter);
+    fighter.player = player;
+  }
+
   private diameterFor(power: number): number {
     if (!this.options.scaleWithPower) return MIN_DIAMETER;
     const ratio = Math.max(1, power / POWER_FOR_MIN);
@@ -86,7 +136,12 @@ export class PvpAvatarManager {
 
   async spawnOrGet(player: PvpPlayerPayload, teamColor: string, dropIn = true): Promise<Fighter> {
     const existing = this.fighters.get(player.user_id);
-    if (existing) return existing;
+    if (existing) {
+      // Same reason as AvatarManager: a photo that arrives after the fighter
+      // did would otherwise never be drawn.
+      await this.refreshTexture(existing, player, teamColor);
+      return existing;
+    }
 
     const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
     const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, TEXTURE_SIZE, player.username);
@@ -124,10 +179,16 @@ export class PvpAvatarManager {
       .setDepth(26)
       .setVisible(this.options.showPowerLabel);
 
+    const nameLabel = this.scene.add
+      .text(x, y + diameter / 2 + 3, displayName(player), NAME_STYLE)
+      .setOrigin(0.5, 0)
+      .setDepth(26);
+
     const fighter: Fighter = {
       sprite,
       hpBarBg,
       hpBar,
+      nameLabel,
       powerLabel,
       player,
       power,
@@ -260,6 +321,7 @@ export class PvpAvatarManager {
     fighter.hpBar.destroy();
     fighter.hpBarBg.destroy();
     fighter.powerLabel.destroy();
+    fighter.nameLabel.destroy();
     this.fighters.delete(userId);
   }
 
@@ -271,6 +333,7 @@ export class PvpAvatarManager {
       fighter.hpBarBg.setPosition(sprite.x, top);
       fighter.hpBar.setPosition(sprite.x - diameter / 2 + 1, top);
       fighter.powerLabel.setPosition(sprite.x, top - 14);
+      fighter.nameLabel.setPosition(sprite.x, sprite.y + diameter / 2 + 3);
 
       const pct = Phaser.Math.Clamp(fighter.power / Math.max(1, fighter.peakPower), 0, 1);
       fighter.hpBar.width = Math.max(1, (diameter - 2) * pct);

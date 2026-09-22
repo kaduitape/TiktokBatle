@@ -123,16 +123,41 @@ async def simulate_platform_gift(
 
 
 @router.post("/join")
-async def simulate_join(session_id: str, username: str | None = None, _: str = Depends(require_admin)):
+async def simulate_join(
+    session_id: str,
+    username: str | None = None,
+    avatar_url: str | None = None,
+    nickname: str | None = None,
+    _: str = Depends(require_admin),
+):
+    """Bring one viewer in.
+
+    The name and the photo are honoured when given. They used to be ignored
+    outright -- the endpoint invented a random name and pinned every avatar to
+    an external placeholder service -- so registering a photo in the panel had
+    no visible effect, and a machine that could not reach that service showed
+    no photos at all.
+    """
     name = username or random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999))
     await simulation_provider.simulate_join(
         session_id=session_id,
         user_id=f"sim-{name}",
         username=name,
-        nickname=name,
-        avatar_url=f"https://i.pravatar.cc/150?u={name}",
+        nickname=nickname or name,
+        avatar_url=avatar_url or _placeholder_avatar(name),
     )
-    return {"ok": True, "username": name}
+    return {"ok": True, "username": name, "avatar_url": avatar_url or _placeholder_avatar(name)}
+
+
+def _placeholder_avatar(name: str) -> str:
+    """A stand-in face for a viewer nobody gave a photo to.
+
+    Kept as a remote service only because it is the cheapest way to get a
+    hundred distinct faces for a stress test. Anything that actually matters
+    -- a photo you registered -- is served from this application instead, so
+    it keeps working on a machine with no route to the open internet.
+    """
+    return f"https://i.pravatar.cc/150?u={name}"
 
 
 @router.post("/comment")

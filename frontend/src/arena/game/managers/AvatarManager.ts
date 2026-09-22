@@ -20,6 +20,26 @@ export interface AvatarEntry {
   giant: boolean;
 }
 
+/** The viewer's name, drawn under their photo: white with a black shadow so
+ * it stays readable over any arena background or any avatar that drifts
+ * behind it. */
+const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: "Segoe UI, sans-serif",
+  fontSize: "22px",
+  fontStyle: "bold",
+  color: "#ffffff",
+  stroke: "#000000",
+  strokeThickness: 5,
+  shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 4, fill: true },
+};
+
+/** Long handles would cover half the arena; trim rather than shrink, so every
+ * name stays the same readable size. */
+function displayName(player: PlayerPayload): string {
+  const raw = (player.nickname || player.username || "").trim();
+  return raw.length > 14 ? `${raw.slice(0, 13)}…` : raw;
+}
+
 export class AvatarManager {
   private scene: Phaser.Scene;
   private avatars = new Map<string, AvatarEntry>();
@@ -42,7 +62,14 @@ export class AvatarManager {
 
   async spawnOrGet(player: PlayerPayload, teamColor: string, dropIn = true): Promise<AvatarEntry> {
     const existing = this.avatars.get(player.user_id);
-    if (existing) return existing;
+    if (existing) {
+      // A viewer's photo can arrive after their ball does -- they join with no
+      // avatar and the gift event carries one, or an admin registers a photo
+      // for somebody already on screen. Returning the existing entry without
+      // looking at the picture meant that photo never appeared.
+      await this.refreshTexture(existing, player, teamColor);
+      return existing;
+    }
 
     const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
     const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, AVATAR_DIAMETER, player.username);
@@ -63,14 +90,61 @@ export class AvatarManager {
     sprite.setFixedRotation();
     sprite.setDepth(20);
 
-    const entry: AvatarEntry = { body: sprite, ring: null as any, label: null, player, giant: false };
+    const label = this.scene.add
+      .text(x, y + AVATAR_DIAMETER / 2 + 4, displayName(player), NAME_STYLE)
+      .setOrigin(0.5, 0)
+      .setDepth(22);
+
+    const entry: AvatarEntry = { body: sprite, ring: null as any, label, player, giant: false };
     this.avatars.set(player.user_id, entry);
     return entry;
   }
 
   updatePlayerMeta(player: PlayerPayload) {
     const entry = this.avatars.get(player.user_id);
-    if (entry) entry.player = player;
+    if (!entry) return;
+    entry.player = player;
+    entry.label?.setText(displayName(player));
+  }
+
+  /** Keeps each name glued under its bouncing avatar. */
+  syncLabels(): void {
+    for (const entry of this.avatars.values()) {
+      if (!entry.label) continue;
+      const sprite = entry.body;
+      if (!sprite.active) continue;
+      entry.label.setPosition(sprite.x, sprite.y + sprite.displayHeight / 2 + 4);
+    }
+  }
+
+  /** Re-bake and swap the sprite's texture when the person's photo changed. */
+  private async refreshTexture(
+    entry: AvatarEntry,
+    player: PlayerPayload,
+    teamColor: string,
+  ): Promise<void> {
+    const current = entry.player.avatar_url ?? null;
+    const next = player.avatar_url ?? null;
+    entry.label?.setText(displayName(player));
+    if (next === current) {
+      entry.player = player;
+      return;
+    }
+
+    const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
+    const textureKey = await bakeAvatarTexture(
+      this.scene,
+      next,
+      teamColor,
+      letter,
+      AVATAR_DIAMETER,
+      player.username,
+    );
+    // The avatar may have been removed while the texture was baking.
+    if (!this.avatars.has(player.user_id)) return;
+    entry.body.setTexture(textureKey);
+    entry.body.setDisplaySize(AVATAR_DIAMETER, AVATAR_DIAMETER);
+    entry.player = player;
   }
 
   highlight(userId: string) {

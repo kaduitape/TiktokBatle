@@ -26,28 +26,43 @@ function compositeCircular(
   size: number,
   ringColor: string
 ): void {
-  const rt = scene.make.renderTexture({ width: size, height: size }, false);
-  const maskShape = scene.make.graphics({}, false);
-  maskShape.fillStyle(0xffffff);
-  maskShape.fillCircle(size / 2, size / 2, size / 2 - 3);
-  rt.setMask(maskShape.createGeometryMask());
+  // Drawn on a plain 2D canvas rather than through a RenderTexture mask.
+  // A mask set on a RenderTexture only clips how that object is drawn to the
+  // screen -- saveTexture() keeps the raw rectangle, so every avatar with an
+  // actual photo came out square while the letter fallback (a filled circle)
+  // looked right. Clipping the canvas bakes the circle into the pixels.
+  const source = scene.textures.get(sourceKey).getSourceImage() as
+    | HTMLImageElement
+    | HTMLCanvasElement;
 
-  const img = scene.make.image({ key: sourceKey }, false);
-  const scale = size / Math.min(img.width, img.height);
-  img.setScale(scale).setPosition(size / 2, size / 2);
-  rt.draw(img, size / 2, size / 2);
-  rt.clearMask();
+  const canvasTexture = scene.textures.createCanvas(key, size, size);
+  if (!canvasTexture) return;
+  const ctx = canvasTexture.context;
+  ctx.clearRect(0, 0, size, size);
 
-  const ring = scene.make.graphics({}, false);
-  ring.lineStyle(4, Phaser.Display.Color.HexStringToColor(ringColor).color, 1);
-  ring.strokeCircle(size / 2, size / 2, size / 2 - 2);
-  rt.draw(ring, 0, 0);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
 
-  rt.saveTexture(key);
-  rt.destroy();
-  maskShape.destroy();
-  ring.destroy();
-  img.destroy();
+  // Cover the circle: scale on the shorter side and centre, so a portrait or
+  // a banner-shaped photo both fill the avatar instead of letterboxing.
+  const sw = source.width || size;
+  const sh = source.height || size;
+  const scale = size / Math.min(sw, sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  ctx.drawImage(source, (size - dw) / 2, (size - dh) / 2, dw, dh);
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = ringColor;
+  ctx.stroke();
+
+  canvasTexture.refresh();
 }
 
 function compositeFallback(

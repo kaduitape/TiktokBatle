@@ -106,6 +106,12 @@ export default class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.DESTROY, closeSocket);
   }
 
+  update() {
+    // The names are plain text objects, not children of the physics bodies,
+    // so they have to be dragged along every frame.
+    this.avatarManager.syncLabels();
+  }
+
   private handleMessage(msg: ArenaMessage) {
     switch (msg.type) {
       case "state_sync":

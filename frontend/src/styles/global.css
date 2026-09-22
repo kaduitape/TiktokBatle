@@ -557,3 +557,82 @@ button:hover {
   margin-left: 6px;
   font-weight: 700;
 }
+
+/* ---- Perfis de teste do simulador ---- */
+
+.person-photo {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #3a3a55;
+  background: #0f0f18;
+  flex-shrink: 0;
+}
+
+.person-photo.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.person-photo.placeholder.tiny {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  border-width: 1px;
+}
+
+.people-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.person-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #2f2f47;
+  border-radius: 999px;
+  background: #14141f;
+  overflow: hidden;
+}
+
+.person-chip .person-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  color: #cfcfe4;
+  font-size: 12px;
+  padding: 4px 4px 4px 5px;
+  cursor: pointer;
+}
+
+.person-chip .person-pick:hover {
+  color: #fff;
+}
+
+.person-chip .person-pick img {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.person-chip .person-remove {
+  background: none;
+  border: none;
+  color: #6b7280;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 8px 5px 4px;
+  cursor: pointer;
+}
+
+.person-chip .person-remove:hover {
+  color: #ff8080;
+}

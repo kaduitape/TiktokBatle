@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
+import { useEffect, useRef, useState } from "react";
+import { api, assetUrl } from "../../api/client";
 
 interface Battle {
   id: string;
@@ -36,6 +36,34 @@ interface ActiveBattle {
   session: Session;
 }
 
+/** A saved test viewer: a name and the photo that goes with it. */
+interface TestPerson {
+  username: string;
+  avatar_url: string;
+}
+
+const PEOPLE_KEY = "simulator_people";
+
+function loadPeople(): TestPerson[] {
+  try {
+    const raw = window.localStorage.getItem(PEOPLE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // Private windows and blocked site data both throw here; the simulator
+    // works fine without the saved list.
+    return [];
+  }
+}
+
+function savePeople(people: TestPerson[]): void {
+  try {
+    window.localStorage.setItem(PEOPLE_KEY, JSON.stringify(people));
+  } catch {
+    /* not worth interrupting a test over */
+  }
+}
+
 export default function Simulator() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [active, setActive] = useState<ActiveBattle | null>(null);
@@ -53,6 +81,11 @@ export default function Simulator() {
   const [allowed, setAllowed] = useState<string[]>([]);
   const [catalog, setCatalog] = useState<CatalogGift[]>([]);
   const [catalogPick, setCatalogPick] = useState("");
+  const photoInput = useRef<HTMLInputElement>(null);
+  /** People you registered here, kept in this browser so a round of testing
+   * does not mean retyping a name and re-picking a photo every time. */
+  const [people, setPeople] = useState<TestPerson[]>(() => loadPeople());
+  const [photoBroken, setPhotoBroken] = useState(false);
 
   /** Simulator actions used to reject silently when something went wrong, so
    * a failure looked like the button doing nothing. */
@@ -194,8 +227,13 @@ export default function Simulator() {
     run(async () => {
       const target = await targetSession();
       if (!target) return;
-      const result = await api.post<{ username: string }>(`/api/simulator/join?session_id=${target.id}`);
-      pushLog(`${result.username} entrou em ${target.name}`);
+      // The name and photo typed above used to be dropped here, so this
+      // button always produced a random stranger with a stranger's face.
+      const params = new URLSearchParams({ session_id: target.id });
+      if (username.trim()) params.set("username", username.trim());
+      if (avatarUrl.trim()) params.set("avatar_url", avatarUrl.trim());
+      const result = await api.post<{ username: string }>(`/api/simulator/join?${params}`);
+      pushLog(`${result.username} entrou em ${target.name}${avatarUrl ? " (com foto)" : ""}`);
     });
 
   const simulateStress = (count: number) =>
@@ -209,6 +247,39 @@ export default function Simulator() {
       pushLog(`LIVE lotada em ${target.name}: ${count} usuários`);
       window.setTimeout(() => void loadActiveBattle(), 1500);
     });
+
+  /** Uploading beats pasting a link: the photo ends up on this application's
+   * own address, so it does not depend on an outside host still being up, or
+   * on that host allowing another site to read its images. */
+  const uploadPhoto = (file: File) =>
+    run(async () => {
+      const { url } = await api.upload("/api/characters/upload", file);
+      setAvatarUrl(url);
+      pushLog(`Foto carregada para ${username || "o perfil"}.`);
+    });
+
+  const rememberPerson = () => {
+    const name = username.trim();
+    if (!name) return;
+    const next = [
+      { username: name, avatar_url: avatarUrl.trim() },
+      ...people.filter((p) => p.username !== name),
+    ].slice(0, 12);
+    setPeople(next);
+    savePeople(next);
+    pushLog(`${name} salvo na lista de perfis.`);
+  };
+
+  const forgetPerson = (name: string) => {
+    const next = people.filter((p) => p.username !== name);
+    setPeople(next);
+    savePeople(next);
+  };
+
+  const usePerson = (person: TestPerson) => {
+    setUsername(person.username);
+    setAvatarUrl(person.avatar_url);
+  };
 
   const session = active?.session;
 
@@ -275,8 +346,106 @@ export default function Simulator() {
           <div>
             <label>Usuário</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} />
-            <label>Avatar (URL, opcional)</label>
-            <input value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://i.pravatar.cc/150?u=carlos" />
+
+            <label>Foto do perfil</label>
+            <div className="row" style={{ alignItems: "center", gap: 10 }}>
+              {avatarUrl ? (
+                <img
+                  src={assetUrl(avatarUrl)}
+                  alt=""
+                  className="person-photo"
+                  onError={(e) => {
+                    // A link that does not load is worth seeing here, not in
+                    // the arena as a letter you cannot explain.
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                    setPhotoBroken(true);
+                  }}
+                  onLoad={() => setPhotoBroken(false)}
+                />
+              ) : (
+                <div className="person-photo placeholder">👤</div>
+              )}
+              <div style={{ flex: 1 }}>
+                <input
+                  ref={photoInput}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadPhoto(file);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  className="secondary"
+                  onClick={() => photoInput.current?.click()}
+                  disabled={busy}
+                >
+                  📁 Carregar foto
+                </button>
+                {avatarUrl && (
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setAvatarUrl("");
+                      setPhotoBroken(false);
+                    }}
+                    style={{ marginLeft: 6 }}
+                  >
+                    Remover
+                  </button>
+                )}
+              </div>
+            </div>
+            <input
+              value={avatarUrl}
+              onChange={(e) => {
+                setAvatarUrl(e.target.value);
+                setPhotoBroken(false);
+              }}
+              placeholder="ou cole uma URL de imagem"
+              style={{ marginTop: 6 }}
+            />
+            {photoBroken && (
+              <p style={{ color: "#e0a01b", fontSize: 12, margin: "4px 0 0" }}>
+                Esta imagem não carregou. Sites que bloqueiam o uso da imagem por outra
+                página falham também na arena — carregue o arquivo que funciona sempre.
+              </p>
+            )}
+
+            <div className="row" style={{ marginTop: 10, alignItems: "center" }}>
+              <button className="secondary" onClick={rememberPerson} disabled={!username.trim()}>
+                💾 Salvar este perfil
+              </button>
+            </div>
+            {people.length > 0 && (
+              <div className="people-strip">
+                {people.map((person) => (
+                  <span key={person.username} className="person-chip">
+                    <button
+                      className="person-pick"
+                      onClick={() => usePerson(person)}
+                      title="Usar este perfil"
+                    >
+                      {person.avatar_url ? (
+                        <img src={assetUrl(person.avatar_url)} alt="" />
+                      ) : (
+                        <span className="person-photo placeholder tiny">👤</span>
+                      )}
+                      {person.username}
+                    </button>
+                    <button
+                      className="person-remove"
+                      onClick={() => forgetPerson(person.username)}
+                      title="Remover da lista"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label>Presente</label>
