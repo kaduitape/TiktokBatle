@@ -289,6 +289,75 @@ da mesma imagem (inpainting / "editar esta imagem"), **prefira isso a gerar do
 zero** — mudar só o braço na mesma arte mantém a consistência que o gerador
 não consegue repetir sozinho.
 
+## Exemplo completo: uma vaquinha que dança, apanha e joga bomba
+
+O personagem que dança em loop, faz uma pose ao levar dano e outra ao jogar a
+bomba são **três imagens**, todas com fundo transparente:
+
+| Imagem | O que é | Campo no painel |
+|---|---|---|
+| Folha da dança | 4 poses lado a lado numa imagem só | **Imagem principal** + colunas/FPS |
+| Pose de dano | 1 desenho avulso | **Ao levar dano** |
+| Pose de ataque | 1 desenho avulso | **Ao atacar** |
+
+O jogo troca sozinho: a dança roda em loop o tempo todo, a pose de dano entra
+por ~0,3s quando o personagem leva um golpe, a de ataque por ~0,4s quando ele
+joga a bomba, e a dança volta em seguida.
+
+### Gerando pelo painel (Admin → Gerar sprites)
+
+1. Em **Descrição**, descreva o personagem uma vez:
+   `caricatura cartoon de uma vaquinha branca com manchas pretas, chifres
+   pequenos, focinho rosa, corpo redondo e fofo`
+2. Clique no preset **🕺 Dançando** — ele preenche as 4 poses já escritas para
+   fechar o loop (a última combina com a primeira).
+3. Marque **Ao levar dano** e **Ao atacar**.
+4. **Colunas na folha** = 4, **Quadros por segundo** = 8.
+5. Gerar. São 6 imagens, ~1 a 2 minutos.
+
+A primeira pose é gerada do zero; **todas as outras são uma edição dela**. É o
+que mantém a mesma vaca em todos os quadros — pedir seis desenhos soltos pelo
+texto devolve seis vacas diferentes.
+
+> Já tem a caricatura pronta? Envie o arquivo em **Carregar caricatura** e as
+> poses são geradas a partir dele, preservando o desenho.
+
+### Especificações da imagem (se for gerar fora do painel)
+
+- **Fundo transparente de verdade** (PNG com canal alfa). Fundo branco vira um
+  retângulo branco na arena.
+- **Corpo inteiro**, da cabeça aos pés, de frente, centralizado, pés na borda
+  de baixo.
+- **O personagem ocupa a mesma proporção do quadro em todas as imagens** — é o
+  que impede a vaca de "pular de tamanho" entre um quadro e outro.
+- **Todos os quadros do mesmo tamanho**, lado a lado numa linha.
+- Sem sombra no chão, sem cenário, iluminação chata e uniforme.
+- Resolução por quadro: 1024x1536 funciona bem; qualquer uma serve desde que
+  todas as células sejam iguais.
+
+Prompt base para colar numa IA de imagem, uma pose por vez:
+
+```
+<descrição do personagem>, <pose desta imagem>,
+corpo inteiro da cabeça aos pés, de frente para a câmera,
+centralizado, pés na borda inferior,
+fundo completamente transparente, sem sombra no chão, sem cenário,
+iluminação uniforme, estilo caricatura cartoon consistente,
+o personagem ocupa a mesma proporção do quadro em todas as imagens
+```
+
+Com os quadros soltos na mão, junte-os numa folha sem perder a transparência:
+
+```
+python scripts/make_spritesheet.py quadro1.png quadro2.png quadro3.png quadro4.png -o vaca.png
+```
+
+### Cadastrando
+
+Em **Admin → Personagens**: envie a folha em **Imagem**, ponha **colunas = 4**,
+**linhas = 1**, **FPS = 8**, e envie as duas poses avulsas nos campos de dano e
+de ataque. Em **Editor de Arena** ajuste tamanho e posição.
+
 ## Altura livre no rodapé (o chat do TikTok)
 
 O chat cobre a parte de baixo da tela, e tudo que a arena ancora no rodapé — o

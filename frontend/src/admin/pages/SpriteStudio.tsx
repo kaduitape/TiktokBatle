@@ -39,6 +39,42 @@ const DEFAULT_POSES = [
   "braço direito a meio caminho, descendo, boca levemente aberta",
 ];
 
+/** Ready-made loops. Each one is written so the last pose flows back into the
+ * first, which is what keeps the animation from jumping when it repeats. */
+const POSE_PRESETS: { label: string; poses: string[] }[] = [
+  {
+    label: "🕺 Dançando",
+    poses: [
+      "de pé, peso no pé esquerdo, quadril inclinado para a esquerda, os dois braços dobrados na altura do peito, sorrindo",
+      "saltando levemente, os dois braços levantados acima da cabeça, corpo esticado, sorrindo de boca aberta",
+      "de pé, peso no pé direito, quadril inclinado para a direita, os dois braços dobrados na altura do peito, sorrindo",
+      "agachado de leve, joelhos dobrados, braços abertos para os lados na altura da cintura, sorrindo de boca aberta",
+    ],
+  },
+  {
+    label: "🗣️ Falando",
+    poses: DEFAULT_POSES,
+  },
+  {
+    label: "🎉 Comemorando",
+    poses: [
+      "os dois punhos fechados erguidos acima da cabeça, boca aberta gritando de alegria",
+      "punhos na altura do peito, joelhos dobrados como quem vai pular, sorrindo",
+      "no ar em um pulo curto, pernas dobradas para trás, braços abertos, boca bem aberta",
+      "aterrissando com os joelhos dobrados, braços descendo pelos lados, sorrindo",
+    ],
+  },
+  {
+    label: "😤 Provocando",
+    poses: [
+      "braços cruzados no peito, sobrancelha levantada, sorriso de canto",
+      "uma das mãos apontando para a frente, corpo inclinado à frente, boca aberta provocando",
+      "as duas mãos abertas ao lado da cabeça fazendo pouco caso, língua de fora",
+      "braços cruzados no peito de novo, sobrancelha levantada, sorriso de canto",
+    ],
+  },
+];
+
 export default function SpriteStudio() {
   const [status, setStatus] = useState<Status | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -286,6 +322,19 @@ export default function SpriteStudio() {
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
           A animação roda em loop, então a última pose tem que combinar com a primeira.
         </p>
+        <div className="gift-filters" style={{ marginBottom: 10 }}>
+          <span style={{ color: "#9a9ac0", fontSize: 12 }}>Começar de um pronto:</span>
+          {POSE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              className="chip"
+              onClick={() => setPoses([...preset.poses])}
+              title="Substitui as poses abaixo"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
         {poses.map((pose, i) => (
           <div className="row" key={i} style={{ marginBottom: 6 }}>
             <span className="pill">{i + 1}</span>
@@ -319,8 +368,12 @@ export default function SpriteStudio() {
         </label>
         <label>
           <input type="checkbox" checked={wantFire} onChange={(e) => setWantFire(e.target.checked)} /> Ao
-          disparar o canhão (Guerra de Tanques)
+          atacar — jogando a bomba, braço esticado (Guerra de Tanques)
         </label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "6px 0 0" }}>
+          As duas entram sozinhas no jogo: a de dano quando o personagem leva um golpe, a de
+          ataque quando ele joga a bomba. Passado o instante, a dança volta a rodar.
+        </p>
 
         <div className="row" style={{ marginTop: 14 }}>
           <div>
