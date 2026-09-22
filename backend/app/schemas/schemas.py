@@ -221,6 +221,33 @@ class SimulateGiftRequest(BaseModel):
     team: Literal["A", "B"] | None = None
 
 
+class SimulatorProfileIn(BaseModel):
+    """A reusable face used by the live-event simulator."""
+
+    name: str = Field(min_length=1, max_length=80)
+    avatar_url: str = Field(min_length=1, max_length=2048)
+
+
+class SimulatorProfileOut(SimulatorProfileIn):
+    id: str
+
+    class Config:
+        from_attributes = True
+
+
+class SimulatorAutoStartIn(BaseModel):
+    session_id: str
+    # Empty means every saved simulator profile. This keeps the usual case
+    # simple while still allowing a presenter to test just selected faces.
+    profile_ids: list[str] = Field(default_factory=list)
+
+
+class BattleBackgroundIn(BaseModel):
+    """The single image which fills an arena behind both teams."""
+
+    background_url: str | None = None
+
+
 class SessionOut(BaseModel):
     id: str
     battle_id: str

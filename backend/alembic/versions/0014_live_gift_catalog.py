@@ -6,8 +6,8 @@ is keyed by (platform, platform_gift_id) so a second platform can be added
 without another table. Existing observations are carried over so nothing
 already discovered is lost.
 
-Revision ID: 0013
-Revises: 0012
+Revision ID: 0014
+Revises: 0013
 Create Date: 2026-09-19
 """
 from datetime import datetime
@@ -17,8 +17,8 @@ import uuid
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0013"
-down_revision: Union[str, None] = "0012"
+revision: str = "0014"
+down_revision: Union[str, None] = "0013"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

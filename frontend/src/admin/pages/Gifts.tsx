@@ -125,7 +125,7 @@ export default function Gifts() {
           <tbody>
             {gifts.map((g) => (
               <tr key={g.id}>
-                <td><code>{g.tiktok_gift_id || "nÃ£o mapeado"}</code></td>
+                <td><code>{g.tiktok_gift_id || "não mapeado"}</code></td>
                 <td style={{ fontSize: 20 }}>{g.icon}</td>
                 <td>{g.name}</td>
                 <td>{g.action_type}</td>

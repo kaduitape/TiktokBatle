@@ -127,6 +127,22 @@ class Battle(Base):
     side_b = relationship("Character", foreign_keys=[side_b_character_id])
 
 
+class SimulatorProfile(Base):
+    """A saved person/photo the simulator can send through the live pipeline.
+
+    These are deliberately separate from real ``Player`` records: a profile is
+    just reusable input for a future simulated viewer, not somebody who has
+    participated in a particular battle yet.
+    """
+
+    __tablename__ = "simulator_profiles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    avatar_url: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BattleGift(Base):
     """Which gifts a battle accepts.
 
