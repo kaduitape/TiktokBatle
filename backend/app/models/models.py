@@ -68,6 +68,41 @@ class Character(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SpriteModel(Base):
+    """A finished animated character, saved to be reused.
+
+    Generating a sheet costs credits and a couple of minutes, so the result is
+    worth keeping apart from any one character: the same dancing cow can be the
+    Lado A of one battle and the Lado B of another, or the starting point for a
+    recoloured variant, without being generated again.
+
+    It holds art only. Everything that belongs to a particular fighter --
+    position, scale, health, team colour -- stays on the Character, so applying
+    a model never moves a character that was already placed in the arena.
+    """
+
+    __tablename__ = "sprite_models"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    sprite_columns: Mapped[int] = mapped_column(Integer, default=0)
+    sprite_rows: Mapped[int] = mapped_column(Integer, default=1)
+    sprite_frame_count: Mapped[int] = mapped_column(Integer, default=0)
+    sprite_fps: Mapped[int] = mapped_column(Integer, default=10)
+
+    hit_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    fire_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # What produced it, kept so a model can be regenerated or tweaked later
+    # without remembering what was typed months ago.
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    poses_json: Mapped[list] = mapped_column(JSON, default=list)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AppSecret(Base):
     """Credentials pasted into the admin panel.
 

@@ -197,6 +197,40 @@ class LearningModeIn(BaseModel):
     enabled: bool
 
 
+class SpriteModelIn(BaseModel):
+    """A generated character saved for reuse. Art only -- nothing about where
+    a fighter stands or how much health it has belongs here."""
+
+    name: str
+    image_url: str | None = None
+    sprite_columns: int = 0
+    sprite_rows: int = 1
+    sprite_frame_count: int = 0
+    sprite_fps: int = 10
+    hit_image_url: str | None = None
+    fire_image_url: str | None = None
+    description: str | None = None
+    poses: list[str] = Field(default_factory=list)
+
+
+class SpriteModelOut(BaseModel):
+    id: str
+    name: str
+    image_url: str | None = None
+    sprite_columns: int
+    sprite_rows: int
+    sprite_frame_count: int
+    sprite_fps: int
+    hit_image_url: str | None = None
+    fire_image_url: str | None = None
+    description: str | None = None
+    poses: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ComboTierIn(BaseModel):
     threshold: int
     label: str

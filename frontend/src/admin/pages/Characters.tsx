@@ -46,8 +46,23 @@ const empty: Omit<Character, "id"> = {
   xp_max: 100000,
 };
 
+/** An animated character saved in Gerar sprites, ready to be reused. */
+interface SpriteModel {
+  id: string;
+  name: string;
+  image_url: string | null;
+  sprite_columns: number;
+  sprite_rows: number;
+  sprite_frame_count: number;
+  sprite_fps: number;
+  hit_image_url: string | null;
+  fire_image_url: string | null;
+}
+
 export default function Characters() {
   const [list, setList] = useState<Character[]>([]);
+  const [models, setModels] = useState<SpriteModel[]>([]);
+  const [modelPick, setModelPick] = useState("");
   const [form, setForm] = useState<Omit<Character, "id"> & { id?: string }>(empty);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
@@ -70,7 +85,38 @@ export default function Characters() {
   const load = () => api.get<Character[]>("/api/characters").then(setList);
   useEffect(() => {
     load();
+    api
+      .get<SpriteModel[]>("/api/sprites/models")
+      .then(setModels)
+      .catch(() => setModels([]));
   }, []);
+
+  /** Starts a new character from a saved model.
+   *
+   * Only the art comes across. Position, scale, health and colour stay at
+   * their defaults so the same model can be both sides of a battle, or the
+   * base for several variants, without inheriting somebody else's placement.
+   */
+  const startFromModel = () => {
+    const model = models.find((m) => m.id === modelPick);
+    if (!model) return;
+    setForm({
+      ...empty,
+      name: model.name,
+      image_url: model.image_url,
+      sprite_columns: model.sprite_columns,
+      sprite_rows: model.sprite_rows,
+      sprite_frame_count: model.sprite_frame_count,
+      sprite_fps: model.sprite_fps,
+      hit_image_url: model.hit_image_url,
+      fire_image_url: model.fire_image_url,
+    });
+    setNotice({
+      kind: "ok",
+      text: `Personagem montado a partir de "${model.name}". Ajuste o nome e o lado, depois salve.`,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const save = () =>
     run("Não consegui salvar o personagem", async () => {
@@ -120,6 +166,80 @@ export default function Characters() {
           }}
         >
           {notice.text}
+        </div>
+      )}
+
+      {models.length > 0 && !form.id && (
+        <div className="card">
+          <h3>Criar a partir de modelo</h3>
+          <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+            Modelos são as artes animadas que você salvou em <strong>Gerar sprites</strong>.
+            Escolher um preenche a animação e as poses de dano e ataque aqui embaixo — você só
+            dá o nome e escolhe o lado.
+          </p>
+          <div className="row" style={{ alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}>
+              <label>Modelo</label>
+              <select
+                value={modelPick}
+                onChange={(e) => setModelPick(e.target.value)}
+                style={{ width: "100%" }}
+              >
+                <option value="">Escolha um modelo…</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                    {model.sprite_columns > 0 ? ` · ${model.sprite_frame_count} quadros` : ""}
+                    {model.hit_image_url ? " · dano" : ""}
+                    {model.fire_image_url ? " · ataque" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button onClick={startFromModel} disabled={!modelPick || saving}>
+              Usar este modelo
+            </button>
+          </div>
+          {modelPick && (
+            <div className="row" style={{ marginTop: 12, alignItems: "center", gap: 12 }}>
+              {(() => {
+                const model = models.find((m) => m.id === modelPick);
+                if (!model) return null;
+                return (
+                  <>
+                    {model.image_url && (
+                      <img
+                        src={assetUrl(model.image_url)}
+                        alt={model.name}
+                        style={{
+                          maxWidth: 320,
+                          maxHeight: 110,
+                          objectFit: "contain",
+                          background:
+                            "repeating-conic-gradient(#2a2a3a 0% 25%, #22222f 0% 50%) 50%/16px 16px",
+                          borderRadius: 6,
+                        }}
+                      />
+                    )}
+                    {model.hit_image_url && (
+                      <img
+                        src={assetUrl(model.hit_image_url)}
+                        alt="dano"
+                        style={{ height: 70, objectFit: "contain" }}
+                      />
+                    )}
+                    {model.fire_image_url && (
+                      <img
+                        src={assetUrl(model.fire_image_url)}
+                        alt="ataque"
+                        style={{ height: 70, objectFit: "contain" }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </div>
       )}
 

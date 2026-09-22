@@ -322,6 +322,24 @@ texto devolve seis vacas diferentes.
 > Já tem a caricatura pronta? Envie o arquivo em **Carregar caricatura** e as
 > poses são geradas a partir dele, preservando o desenho.
 
+### Salvando como modelo e reusando
+
+Gerar uma folha custa créditos e alguns minutos, então a arte pronta vale mais
+que o personagem em que ela foi usada primeiro. Abaixo da prévia, em
+**Salvar como modelo**, dê um nome e guarde.
+
+Depois, em **Personagens**, o bloco **Criar a partir de modelo** monta um
+personagem novo com aquela arte: escolha o modelo, clique em **Usar este
+modelo** e o formulário abaixo já vem com a folha, a grade, o FPS e as duas
+poses de ação preenchidos. Você só ajusta o nome e o lado.
+
+Só a **arte** vem do modelo. Posição, escala, vida e cor do time ficam no
+padrão, então o mesmo modelo pode ser o Lado A de uma batalha e o Lado B de
+outra sem herdar a colocação de ninguém.
+
+Excluir um modelo não mexe nos personagens já criados com ele — eles apontam
+para os mesmos arquivos, que continuam onde estão.
+
 ### Aplicando num personagem que já existe
 
 Depois que a folha fica pronta, o painel mostra a prévia e logo abaixo um

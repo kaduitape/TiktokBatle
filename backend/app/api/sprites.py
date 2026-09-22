@@ -8,11 +8,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.models import SpriteModel
+from app.schemas.schemas import SpriteModelIn, SpriteModelOut
 from app.services import secret_store, sprite_studio
 from app.services.sprite_studio import SpriteStudioError
 
@@ -258,3 +261,88 @@ def _to_out(result) -> GenerateOut:
     if result.fire:
         out.fire_url = _save_png(result.fire)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Saved models: a finished animated character, kept to be reused
+# ---------------------------------------------------------------------------
+
+
+def _model_out(model: SpriteModel) -> SpriteModelOut:
+    return SpriteModelOut(
+        id=model.id,
+        name=model.name,
+        image_url=model.image_url,
+        sprite_columns=model.sprite_columns,
+        sprite_rows=model.sprite_rows,
+        sprite_frame_count=model.sprite_frame_count,
+        sprite_fps=model.sprite_fps,
+        hit_image_url=model.hit_image_url,
+        fire_image_url=model.fire_image_url,
+        description=model.description,
+        poses=list(model.poses_json or []),
+        created_at=model.created_at,
+    )
+
+
+@router.get("/models", response_model=list[SpriteModelOut])
+async def list_models(db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    models = (
+        (await db.execute(select(SpriteModel).order_by(SpriteModel.created_at.desc())))
+        .scalars()
+        .all()
+    )
+    return [_model_out(m) for m in models]
+
+
+@router.post("/models", response_model=SpriteModelOut)
+async def save_model(
+    body: SpriteModelIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    """Keeps a generated sheet so it can be applied to any character later.
+
+    The art files are already on disk under /uploads; this only records which
+    ones belong together and how the sheet is sliced.
+    """
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Dê um nome ao modelo.")
+    if not (body.image_url or body.hit_image_url or body.fire_image_url):
+        raise HTTPException(400, "Não há nenhuma imagem para salvar neste modelo.")
+
+    existing = (
+        await db.execute(select(SpriteModel).where(SpriteModel.name == name))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(409, f'Já existe um modelo chamado "{name}".')
+
+    model = SpriteModel(
+        name=name,
+        image_url=body.image_url,
+        sprite_columns=body.sprite_columns,
+        sprite_rows=body.sprite_rows,
+        sprite_frame_count=body.sprite_frame_count,
+        sprite_fps=body.sprite_fps,
+        hit_image_url=body.hit_image_url,
+        fire_image_url=body.fire_image_url,
+        description=body.description,
+        poses_json=list(body.poses),
+    )
+    db.add(model)
+    await db.commit()
+    await db.refresh(model)
+    return _model_out(model)
+
+
+@router.delete("/models/{model_id}")
+async def delete_model(
+    model_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    """Forgets the model. The characters already built from it keep their art:
+    they point at the same files, which are not touched here."""
+    model = await db.get(SpriteModel, model_id)
+    if model is None:
+        raise HTTPException(404, "modelo não encontrado")
+    await db.delete(model)
+    await db.commit()
+    return {"ok": True}

@@ -75,6 +75,22 @@ const POSE_PRESETS: { label: string; poses: string[] }[] = [
   },
 ];
 
+/** A finished animated character, kept so it can be applied to any character
+ * later without generating (and paying for) it again. */
+interface SpriteModel {
+  id: string;
+  name: string;
+  image_url: string | null;
+  sprite_columns: number;
+  sprite_rows: number;
+  sprite_frame_count: number;
+  sprite_fps: number;
+  hit_image_url: string | null;
+  fire_image_url: string | null;
+  description: string | null;
+  created_at: string;
+}
+
 interface Job {
   job_id: string;
   status: "running" | "done" | "error";
@@ -91,6 +107,8 @@ export default function SpriteStudio() {
   const [description, setDescription] = useState("");
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
+  const [modelName, setModelName] = useState("");
+  const [models, setModels] = useState<SpriteModel[]>([]);
   const [wantHit, setWantHit] = useState(true);
   const [wantFire, setWantFire] = useState(true);
   const [poses, setPoses] = useState<string[]>(DEFAULT_POSES);
@@ -109,6 +127,7 @@ export default function SpriteStudio() {
   useEffect(() => {
     api.get<Status>("/api/sprites/status").then(setStatus).catch(() => setStatus(null));
     api.get<Character[]>("/api/characters").then(setCharacters);
+    api.get<SpriteModel[]>("/api/sprites/models").then(setModels).catch(() => undefined);
   }, []);
 
   /** Runs a key action and folds the outcome into the banner. The key itself
@@ -216,6 +235,51 @@ export default function SpriteStudio() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setProgress("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadModels = () =>
+    api.get<SpriteModel[]>("/api/sprites/models").then(setModels).catch(() => undefined);
+
+  const saveModel = async () => {
+    if (!sheet || !modelName.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.post("/api/sprites/models", {
+        name: modelName.trim(),
+        image_url: sheet.url,
+        sprite_columns: sheet.columns,
+        sprite_rows: sheet.rows,
+        sprite_frame_count: sheet.frame_count,
+        sprite_fps: fps,
+        hit_image_url: sheet.hit_url,
+        fire_image_url: sheet.fire_url,
+        description,
+        poses: poses.filter((pose) => pose.trim()),
+      });
+      setApplied(
+        `Modelo "${modelName.trim()}" salvo. Em Personagens, use "Criar a partir de modelo".`,
+      );
+      setModelName("");
+      await loadModels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeModel = async (model: SpriteModel) => {
+    if (!window.confirm(`Excluir o modelo "${model.name}"? Os personagens já criados com ele continuam iguais.`)) return;
+    setBusy(true);
+    try {
+      await api.del(`/api/sprites/models/${model.id}`);
+      await loadModels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -496,7 +560,29 @@ export default function SpriteStudio() {
             </div>
           )}
 
-          <div className="row" style={{ marginTop: 10 }}>
+          <div
+            className="row"
+            style={{ marginTop: 14, alignItems: "flex-end", paddingTop: 12, borderTop: "1px solid #262638" }}
+          >
+            <div style={{ flex: 1 }}>
+              <label>Salvar como modelo</label>
+              <input
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder="Ex: Vaquinha dançando"
+              />
+            </div>
+            <button onClick={saveModel} disabled={busy || !modelName.trim()}>
+              💾 Salvar modelo
+            </button>
+          </div>
+          <p style={{ color: "#9a9ac0", fontSize: 12, margin: "4px 0 0" }}>
+            Guarda esta arte para reusar. Em <strong>Personagens</strong>, o botão
+            "Criar a partir de modelo" monta um personagem novo com ela — sem gerar (nem pagar)
+            de novo.
+          </p>
+
+          <div className="row" style={{ marginTop: 14 }}>
             <select value={targetId} onChange={(e) => setTargetId(e.target.value)}>
               <option value="">Aplicar em qual personagem…</option>
               {characters.map((c) => (
@@ -515,6 +601,56 @@ export default function SpriteStudio() {
             )}
           </div>
           {applied && <p style={{ color: "#4ade80", fontSize: 13, marginTop: 10 }}>{applied}</p>}
+        </div>
+      )}
+
+      {models.length > 0 && (
+        <div className="card">
+          <h3>Modelos salvos</h3>
+          <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+            Artes prontas, guardadas para reusar. Um personagem novo sai de qualquer uma delas em
+            <strong> Personagens → Criar a partir de modelo</strong>.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            {models.map((model) => (
+              <div
+                key={model.id}
+                style={{
+                  border: "1px solid #2f2f47",
+                  borderRadius: 10,
+                  padding: 10,
+                  width: 200,
+                  background: "#14141f",
+                }}
+              >
+                {model.image_url ? (
+                  <img
+                    src={`${API_BASE}${model.image_url}`}
+                    alt={model.name}
+                    style={{ width: "100%", background: CHECKER, borderRadius: 6 }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 30, textAlign: "center", padding: 20 }}>🖼️</div>
+                )}
+                <strong style={{ display: "block", marginTop: 6, fontSize: 13 }}>{model.name}</strong>
+                <div style={{ color: "#9a9ac0", fontSize: 12 }}>
+                  {model.sprite_columns > 0
+                    ? `${model.sprite_frame_count} quadros · ${model.sprite_fps} FPS`
+                    : "imagem parada"}
+                  {model.hit_image_url && " · dano"}
+                  {model.fire_image_url && " · ataque"}
+                </div>
+                <button
+                  className="secondary"
+                  onClick={() => removeModel(model)}
+                  disabled={busy}
+                  style={{ marginTop: 8, padding: "3px 10px", fontSize: 12 }}
+                >
+                  Excluir
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
