@@ -75,11 +75,22 @@ const POSE_PRESETS: { label: string; poses: string[] }[] = [
   },
 ];
 
+interface Job {
+  job_id: string;
+  status: "running" | "done" | "error";
+  done: number;
+  total: number;
+  label: string;
+  result: Sheet | null;
+  error: string | null;
+}
+
 export default function SpriteStudio() {
   const [status, setStatus] = useState<Status | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [description, setDescription] = useState("");
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
   const [wantHit, setWantHit] = useState(true);
   const [wantFire, setWantFire] = useState(true);
   const [poses, setPoses] = useState<string[]>(DEFAULT_POSES);
@@ -155,13 +166,18 @@ export default function SpriteStudio() {
   const addPose = () => setPoses((list) => [...list, ""]);
   const removePose = (index: number) => setPoses((list) => list.filter((_, i) => i !== index));
 
+  /** Generation makes one call to the image provider per frame and runs well
+   * past a minute. Waiting on a single request meant whatever proxy sits in
+   * front of the app killed it first -- Cloudflare answers 504 at 100 seconds
+   * -- so the request only starts the job and we ask how it is going. */
   const generate = async () => {
     setBusy(true);
     setError("");
     setApplied("");
     setSheet(null);
+    setProgress("começando...");
     try {
-      const result = await api.post<Sheet>("/api/sprites/generate", {
+      const started = await api.post<Job>("/api/sprites/generate", {
         description,
         poses: poses.filter((p) => p.trim()),
         base_image_url: baseUrl,
@@ -169,9 +185,37 @@ export default function SpriteStudio() {
         want_fire: wantFire,
         columns,
       });
-      setSheet(result);
+
+      // Generous ceiling: eight frames at ~20s each, plus room to spare.
+      const deadline = Date.now() + 10 * 60 * 1000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2500));
+        const job = await api.get<Job>(`/api/sprites/jobs/${started.job_id}`);
+
+        if (job.status === "done" && job.result) {
+          setSheet(job.result);
+          setProgress("");
+          return;
+        }
+        if (job.status === "error") {
+          setError(job.error || "A geração falhou.");
+          setProgress("");
+          return;
+        }
+        setProgress(
+          job.total
+            ? `gerando ${job.done} de ${job.total}${job.label ? ` — ${job.label}` : ""}...`
+            : "começando...",
+        );
+        if (Date.now() > deadline) {
+          setError("A geração passou de 10 minutos. Confira o servidor.");
+          setProgress("");
+          return;
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setProgress("");
     } finally {
       setBusy(false);
     }
@@ -399,7 +443,8 @@ export default function SpriteStudio() {
           </button>
           {busy && (
             <span style={{ color: "#9a9ac0", fontSize: 13 }}>
-              Cada pose é uma chamada à API — com 4 poses costuma levar 1 a 2 minutos.
+              {progress || "começando..."} — cada pose é uma chamada à API, com 4 poses costuma
+              levar 1 a 2 minutos. Pode deixar esta aba aberta.
             </span>
           )}
         </div>

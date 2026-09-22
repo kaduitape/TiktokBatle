@@ -14,6 +14,7 @@ import base64
 import logging
 from dataclasses import dataclass
 from io import BytesIO
+from typing import Callable
 
 import httpx
 from PIL import Image
@@ -164,6 +165,7 @@ async def generate_artwork(
     want_fire: bool = False,
     columns: int = 0,
     size: str = DEFAULT_SIZE,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> StudioResult:
     """Produces a character's art in one run.
 
@@ -182,6 +184,19 @@ async def generate_artwork(
     frames: list[Image.Image] = []
     key = await _require_key()
 
+    # Each image is a separate call to the provider and takes its own handful
+    # of seconds, so the caller is told where we are rather than being left to
+    # guess whether a long wait is progress or a hang.
+    total = (len(poses) if base_image is None else len(poses) + 1)
+    total += (1 if want_hit else 0) + (1 if want_fire else 0)
+    done = 0
+
+    def step(label: str) -> None:
+        nonlocal done
+        done += 1
+        if on_progress:
+            on_progress(done, total, label)
+
     async with _open_client(key) as client:
         if base_image is not None:
             # The uploaded caricature is the character's neutral frame, and the
@@ -192,6 +207,7 @@ async def generate_artwork(
                 raise SpriteStudioError("Não consegui ler a imagem base enviada.") from exc
             frames.append(reference)
             pose_instructions = poses
+            step("caricatura enviada")
         else:
             first = await _post(
                 client,
@@ -208,12 +224,14 @@ async def generate_artwork(
             frames.append(first)
             pose_instructions = poses[1:]
             logger.info("sprite studio: quadro 1 gerado do texto")
+            step("quadro 1")
 
         reference_png = _as_png(frames[0])
 
         for index, pose in enumerate(pose_instructions, start=len(frames) + 1):
             frames.append(await _edit(client, reference_png, f"the pose becomes {pose}", size))
             logger.info("sprite studio: quadro %d gerado", index)
+            step(f"quadro {index}")
 
         hit = fire = None
         if want_hit:
@@ -227,6 +245,7 @@ async def generate_artwork(
                 )
             )
             logger.info("sprite studio: imagem de dano gerada")
+            step("pose de dano")
         if want_fire:
             fire = _as_png(
                 await _edit(
@@ -238,6 +257,7 @@ async def generate_artwork(
                 )
             )
             logger.info("sprite studio: imagem de disparo gerada")
+            step("pose de ataque")
 
     sheet = compose_sheet(frames, columns=columns) if frames else None
     return StudioResult(sheet=sheet, hit=hit, fire=fire)

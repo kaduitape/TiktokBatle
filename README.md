@@ -322,6 +322,34 @@ texto devolve seis vacas diferentes.
 > Já tem a caricatura pronta? Envie o arquivo em **Carregar caricatura** e as
 > poses são geradas a partir dele, preservando o desenho.
 
+### Aplicando num personagem que já existe
+
+Depois que a folha fica pronta, o painel mostra a prévia e logo abaixo um
+seletor **Aplicar em**: escolha o personagem e clique em **Aplicar**. Ele
+grava só o que aquela geração produziu — a animação sobrescreve a imagem e o
+grid, a pose de dano vai para o campo de dano, a de ataque para o de ataque, e
+nada mais do personagem é tocado (nome, escala, posição, vida ficam como
+estavam).
+
+A arena aberta no OBS continua com a arte antiga até recarregar; a forma mais
+rápida é **Salvar e aplicar na arena** no Editor de Arena.
+
+### Por que a geração não trava mais em 504
+
+Gerar uma folha completa são seis chamadas à API de imagem, uma por desenho, e
+passa de um minuto. Isso era uma requisição HTTP só, e qualquer proxy na
+frente do servidor a matava antes do fim — o Cloudflare desiste aos 100
+segundos e devolve **504 Gateway time-out**, mesmo com o trabalho correndo
+normalmente atrás.
+
+Agora a requisição só **começa** o trabalho e devolve um identificador na
+hora; o painel pergunta o andamento a cada 2s e mostra `gerando 3 de 6 —
+quadro 3`. Nada mais depende de uma conexão ficar aberta por minutos.
+
+O andamento vive na memória do servidor: se ele reiniciar no meio, a geração
+se perde e o painel avisa para começar de novo. As imagens já salvas até ali
+continuam em `/uploads`.
+
 ### Especificações da imagem (se for gerar fora do painel)
 
 - **Fundo transparente de verdade** (PNG com canal alfa). Fundo branco vira um

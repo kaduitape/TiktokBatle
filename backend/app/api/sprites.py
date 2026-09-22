@@ -1,6 +1,10 @@
+import asyncio
 import logging
 import os
+import time
 import uuid
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -114,9 +118,47 @@ def _save_png(data: bytes) -> str:
     return f"/uploads/{filename}"
 
 
-@router.post("/generate", response_model=GenerateOut)
-async def generate(body: GenerateRequest, _: str = Depends(require_admin)):
-    base_image = _read_upload(body.base_image_url) if body.base_image_url else None
+@dataclass
+class _Job:
+    """One generation run, tracked while it happens.
+
+    Generation makes a separate call to the image provider for every frame and
+    easily runs past a minute. Held open as a single HTTP request, that dies at
+    whatever proxy sits in front of the app -- Cloudflare gives up at 100
+    seconds and answers 504 -- while the work carries on invisibly behind it.
+    So the request only starts the job and the panel asks how it is going.
+
+    Kept in memory on purpose: a restart cancels everything anyway, and a job
+    whose task is gone has nothing to report.
+    """
+
+    id: str
+    status: str = "running"  # running|done|error
+    done: int = 0
+    total: int = 0
+    label: str = ""
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    started_at: float = field(default_factory=time.time)
+    finished_at: float | None = None
+
+
+_JOBS: dict[str, _Job] = {}
+# Long enough to survive a panel left on another tab, short enough that a busy
+# day does not accumulate finished jobs forever.
+_JOB_TTL_SECONDS = 30 * 60
+
+
+def _forget_old_jobs() -> None:
+    now = time.time()
+    for job_id, job in list(_JOBS.items()):
+        if job.finished_at and (now - job.finished_at) > _JOB_TTL_SECONDS:
+            _JOBS.pop(job_id, None)
+
+
+async def _run_job(job: _Job, body: GenerateRequest, base_image: bytes | None) -> None:
+    def progress(done: int, total: int, label: str) -> None:
+        job.done, job.total, job.label = done, total, label
 
     try:
         result = await sprite_studio.generate_artwork(
@@ -127,15 +169,76 @@ async def generate(body: GenerateRequest, _: str = Depends(require_admin)):
             want_fire=body.want_fire,
             columns=body.columns,
             size=body.size,
+            on_progress=progress,
         )
+        job.result = _to_out(result).model_dump()
+        job.status = "done"
     except SpriteStudioError as exc:
-        # The message is written for the admin, so pass it through instead of
-        # collapsing it into a generic failure.
-        raise HTTPException(400, str(exc)) from exc
+        # Written for the admin, so pass it through rather than collapsing it
+        # into a generic failure.
+        job.status, job.error = "error", str(exc)
+    except asyncio.CancelledError:
+        job.status, job.error = "error", "A geração foi interrompida."
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.exception("sprite generation failed")
-        raise HTTPException(500, f"Falha ao gerar: {exc}") from exc
+        job.status, job.error = "error", f"Falha ao gerar: {exc}"
+    finally:
+        job.finished_at = time.time()
 
+
+class JobOut(BaseModel):
+    job_id: str
+    status: str
+    done: int = 0
+    total: int = 0
+    label: str = ""
+    result: GenerateOut | None = None
+    error: str | None = None
+
+
+@router.post("/generate", response_model=JobOut, status_code=202)
+async def generate(body: GenerateRequest, _: str = Depends(require_admin)):
+    """Starts a generation and returns immediately.
+
+    Poll /api/sprites/jobs/{job_id} for progress and the finished art.
+    """
+    base_image = _read_upload(body.base_image_url) if body.base_image_url else None
+
+    _forget_old_jobs()
+    job = _Job(id=uuid.uuid4().hex)
+    _JOBS[job.id] = job
+    task = asyncio.create_task(_run_job(job, body, base_image))
+    # Without a reference the loop may garbage-collect the task mid-run.
+    job_tasks.add(task)
+    task.add_done_callback(job_tasks.discard)
+
+    return JobOut(job_id=job.id, status=job.status, done=0, total=0, label="começando")
+
+
+job_tasks: set[asyncio.Task] = set()
+
+
+@router.get("/jobs/{job_id}", response_model=JobOut)
+async def job_status(job_id: str, _: str = Depends(require_admin)):
+    job = _JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(
+            404,
+            "Esta geração não existe mais. Se o servidor reiniciou, comece de novo.",
+        )
+    return JobOut(
+        job_id=job.id,
+        status=job.status,
+        done=job.done,
+        total=job.total,
+        label=job.label,
+        result=GenerateOut(**job.result) if job.result else None,
+        error=job.error,
+    )
+
+
+def _to_out(result) -> GenerateOut:
     out = GenerateOut()
     if result.sheet:
         out.url = _save_png(result.sheet.png)
