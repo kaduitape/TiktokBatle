@@ -76,6 +76,48 @@ interface SpriteModel {
   sprite_clips: Clip[];
 }
 
+/** What this character will actually do in the arena, in one sentence.
+ *
+ * "It does not animate" is nearly impossible to diagnose from a form full of
+ * numbers: columns at 0 is a still image, a base row of one frame is a loop
+ * that never changes, and a clip list that names rows the grid does not have
+ * silently loses them. Saying it out loud here turns all of that into
+ * something readable before the character ever reaches the arena.
+ */
+function describeAnimation(form: { sprite_columns: number; sprite_rows: number; sprite_frame_count: number; sprite_fps: number; sprite_clips: Clip[] }): { kind: "still" | "frozen" | "ok"; text: string } {
+  const columns = form.sprite_columns ?? 0;
+  if (columns <= 0) {
+    return { kind: "still", text: "Imagem parada: com 0 colunas a arte não é tratada como folha de sprites." };
+  }
+
+  const rows = Math.max(1, form.sprite_rows ?? 1);
+  const clips = (form.sprite_clips ?? []).filter((c) => c.row < rows);
+  if (!clips.length) {
+    const cells = columns * rows;
+    const frames = form.sprite_frame_count > 0 ? Math.min(form.sprite_frame_count, cells) : cells;
+    return frames < 2
+      ? { kind: "frozen", text: "Parado: a grade tem só um quadro, então não há o que animar." }
+      : { kind: "ok", text: `Anima a grade inteira: ${frames} quadros a ${form.sprite_fps} por segundo.` };
+  }
+
+  const base = clips.find((c) => c.kind !== "gesture") ?? clips[0];
+  const gestures = clips.filter((c) => c.kind === "gesture");
+  if ((base?.frames ?? 0) < 2) {
+    return {
+      kind: "frozen",
+      text: "Parado: o movimento base tem um quadro só. Gere a folha de novo com pelo menos duas poses no movimento base.",
+    };
+  }
+  const lost = (form.sprite_clips ?? []).length - clips.length;
+  return {
+    kind: "ok",
+    text:
+      `Anima: ${base.frames} quadros no movimento base a ${form.sprite_fps} por segundo` +
+      (gestures.length ? `, mais ${gestures.length} gesto(s) (${gestures.map((g) => g.name).join(", ")}) entrando de vez em quando` : ", sem gestos") +
+      "." + (lost > 0 ? ` ⚠️ ${lost} movimento(s) apontam para linhas que a grade não tem — confira o campo Linhas.` : ""),
+  };
+}
+
 export default function Characters() {
   const [list, setList] = useState<Character[]>([]);
   const [models, setModels] = useState<SpriteModel[]>([]);
@@ -288,6 +330,24 @@ export default function Characters() {
               diga aqui como a grade está dividida. Deixe as colunas em <b>0</b> para
               usar a imagem como desenho parado.
             </p>
+            {(() => {
+              const state = describeAnimation(form);
+              const colour = state.kind === "ok" ? "#4ade80" : state.kind === "frozen" ? "#e0a01b" : "#9a9ac0";
+              return (
+                <p
+                  style={{
+                    borderLeft: `3px solid ${colour}`,
+                    paddingLeft: 10,
+                    margin: "0 0 10px",
+                    color: colour,
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {state.text}
+                </p>
+              );
+            })()}
             <div className="row">
               <div style={{ flex: 1 }}>
                 <label>Colunas</label>
@@ -451,7 +511,10 @@ export default function Characters() {
                 </td>
                 <td>
                   {c.sprite_columns > 0
-                    ? `${c.sprite_columns}x${c.sprite_rows} @ ${c.sprite_fps}fps`
+                    ? `${c.sprite_columns}x${c.sprite_rows} @ ${c.sprite_fps}fps` +
+                      ((c.sprite_clips ?? []).filter((k) => k.kind === "gesture").length
+                        ? ` · ${(c.sprite_clips ?? []).filter((k) => k.kind === "gesture").length} gestos`
+                        : "")
                     : "parada"}
                 </td>
                 <td>{c.xp_max.toLocaleString("pt-BR")}</td>

@@ -246,10 +246,14 @@ async def generate_artwork(
         raise SpriteStudioError("Descreva o personagem ou envie uma imagem base.")
     if not poses and not gestures and not want_hit and not want_fire:
         raise SpriteStudioError("Escolha pelo menos uma pose ou uma imagem de ação.")
-    if gestures and not poses:
+    # How many frames the base row will hold. An uploaded caricature is a frame
+    # of its own; without one, the first pose is drawn from the description.
+    base_frames = len(poses) + 1 if base_image is not None else max(1, len(poses))
+    if gestures and base_frames < 2:
         raise SpriteStudioError(
-            "Os gestos são intercalados com o movimento base, então o movimento "
-            "base precisa de pelo menos uma pose."
+            "Com uma pose só o movimento base fica congelado: o personagem ficaria "
+            "parado entre um gesto e outro. Escreva pelo menos duas poses para o "
+            "movimento base, ou desmarque os gestos."
         )
 
     frames: list[Image.Image] = []
@@ -264,7 +268,7 @@ async def generate_artwork(
     # Each image is a separate call to the provider and takes its own handful
     # of seconds, so the caller is told where we are rather than being left to
     # guess whether a long wait is progress or a hang.
-    total = (len(poses) if base_image is None else len(poses) + 1)
+    total = (max(1, len(poses)) if base_image is None else len(poses) + 1)
     total += sum(len(g.poses) for g in gestures)
     total += (1 if want_hit else 0) + (1 if want_fire else 0)
     done = 0
@@ -290,10 +294,14 @@ async def generate_artwork(
             pose_instructions = poses
             step("caricatura enviada")
         else:
+            # With no poses at all the run is only about the reaction stills,
+            # but they are edits of a reference that has to exist first: one
+            # neutral drawing, which is also the character's only frame.
+            opening = poses[0] if poses else "de pé, parado, braços ao lado do corpo"
             first = _clean(
                 await provider.generate(
                     client,
-                    f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
+                    f"{description.strip()}. {STYLE_RULES}. Pose: {opening}",
                     size,
                 ),
                 provider,
