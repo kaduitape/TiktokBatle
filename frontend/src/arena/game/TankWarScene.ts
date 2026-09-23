@@ -116,13 +116,19 @@ export default class TankWarScene extends Phaser.Scene {
     this.soldiers = new PvpAvatarManager(this, {
       scaleWithPower: false,
       showPowerLabel: false,
-      // The voter balls always stay in the lower half of their own side.
-      frictionAir: 0.002,
+      // The voter balls hold their place in the band rather than sinking, so
+      // the drag is high: a shove from a neighbour should fade quickly
+      // instead of sending somebody drifting across their side.
+      frictionAir: 0.08,
       spawnY: soldierSpawnY(),
       fieldYMin: soldierFieldTopY(),
       fieldYMax: soldierFieldBottomY(),
       centerEntrance: true,
       idleWander: true,
+      // A hundred voters at the fixed size do not fit in the band, and the
+      // physics resolved that by squeezing them out past the arena's edges.
+      // They shrink to fit instead.
+      packToFit: true,
     });
     this.effects = new EffectsManager(this);
     this.missiles = new MissileManager(this, this.effects);

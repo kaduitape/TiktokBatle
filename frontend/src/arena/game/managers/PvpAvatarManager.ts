@@ -8,6 +8,15 @@ import { arenaLayout, CEILING_Y, CENTER_X, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y
 // crisp, and never below it, which is what made small avatars look ragged.
 const TEXTURE_SIZE = 160;
 const MIN_DIAMETER = 64;
+
+/** How small a packed soldier may get. Below this a face stops being a face,
+ * and a wall of dots is worse than a crowd that slightly overlaps. */
+const PACKED_MIN_DIAMETER = 26;
+
+/** Circles never tile perfectly and the band is not a perfect rectangle, so
+ * only part of it is really usable. Measured against a full field rather than
+ * derived: at 1.0 the army fills every pixel and looks like a solid block. */
+const PACKING_EFFICIENCY = 0.55;
 const MAX_DIAMETER = 190;
 const POWER_FOR_MIN = 100;
 /** A visible breathing room so profile circles do not begin on top of one
@@ -53,6 +62,10 @@ export interface PvpAvatarOptions {
   centerEntrance?: boolean;
   /** Small, infrequent impulses keep an army looking alive after it settles. */
   idleWander?: boolean;
+  /** Shrink everybody as their side fills up, so a full army still fits in
+   * its band instead of being squeezed out past the arena's edges. Only the
+   * modes with a fixed soldier size use it; PvP sizes by power instead. */
+  packToFit?: boolean;
 }
 
 /** Manages the circular avatars that fight in the arena: an HP bar that
@@ -89,6 +102,7 @@ export class PvpAvatarManager {
       showPowerLabel: options.showPowerLabel ?? true,
       centerEntrance: options.centerEntrance ?? false,
       idleWander: options.idleWander ?? false,
+      packToFit: options.packToFit ?? false,
       frictionAir: options.frictionAir ?? 0.015,
       spawnY: options.spawnY ?? SPAWN_TOP_Y,
       fieldYMin: options.fieldYMin ?? CEILING_Y,
@@ -140,6 +154,48 @@ export class PvpAvatarManager {
     fighter.player = player;
   }
 
+  /** The size everybody on one side should be, given how many of them there
+   * are. Returns the normal size until the band actually runs out of room. */
+  private packedDiameter(team: "A" | "B"): number {
+    return this.packedDiameterFor(team, 0);
+  }
+
+  private packedDiameterFor(team: "A" | "B", extra: number): number {
+    if (!this.options.packToFit) return MIN_DIAMETER;
+
+    const zone = team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
+    const width = Math.max(1, zone.xMax - zone.xMin);
+    const top = Math.max(CEILING_Y, this.options.fieldYMin ?? CEILING_Y);
+    const bottom = Math.min(arenaLayout.floorY, this.options.fieldYMax ?? arenaLayout.floorY);
+    const height = Math.max(1, bottom - top);
+
+    const count =
+      this.all().filter((f) => f.player.team === team && f.sprite.active).length + extra;
+    if (count <= 1) return MIN_DIAMETER;
+
+    const perSoldier = (width * height * PACKING_EFFICIENCY) / count;
+    const fits = Math.sqrt(perSoldier) - SPAWN_GAP;
+    return Phaser.Math.Clamp(fits, PACKED_MIN_DIAMETER, MIN_DIAMETER);
+  }
+
+  /** Resize a side after somebody joined or left, so the whole army changes
+   * together instead of newcomers arriving smaller than everybody else. */
+  private repackSide(team: "A" | "B"): void {
+    if (!this.options.packToFit) return;
+    const target = this.packedDiameter(team);
+
+    for (const fighter of this.fighters.values()) {
+      if (fighter.player.team !== team || !fighter.sprite.active) continue;
+      if (Math.abs(fighter.diameter - target) < 1) continue;
+
+      const ratio = target / fighter.diameter;
+      const body = fighter.sprite.body as MatterJS.BodyType | undefined;
+      if (body) this.scene.matter.body.scale(body, ratio, ratio);
+      fighter.sprite.setDisplaySize(target, target);
+      fighter.diameter = target;
+    }
+  }
+
   private diameterFor(power: number): number {
     if (!this.options.scaleWithPower) return MIN_DIAMETER;
     const ratio = Math.max(1, power / POWER_FOR_MIN);
@@ -160,7 +216,11 @@ export class PvpAvatarManager {
     const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, TEXTURE_SIZE, player.username);
 
     const power = player.power ?? POWER_FOR_MIN;
-    const diameter = this.diameterFor(power);
+    // Count this newcomer before sizing, so they arrive at the size the side
+    // is about to settle on rather than one step behind it.
+    const diameter = this.options.packToFit
+      ? this.packedDiameterFor(player.team, 1)
+      : this.diameterFor(power);
     const destination = this.findOpenSpawnPoint(player.team, diameter, dropIn);
     const enterFromCenter = dropIn && this.options.centerEntrance;
     const x = enterFromCenter ? CENTER_X : destination.x;
@@ -178,6 +238,13 @@ export class PvpAvatarManager {
     sprite.setDisplaySize(diameter, diameter);
     sprite.setFixedRotation();
     sprite.setDepth(20);
+    if (this.options.packToFit) {
+      // Gravity dragged the whole army into one line along the floor, where a
+      // side's worth of soldiers is wider than its half of the arena and the
+      // physics pushed the ends out past the edges. Held in place they keep
+      // the spread that findOpenSpawnPoint gave them and fill the band.
+      sprite.setIgnoreGravity(true);
+    }
 
     const hpBarBg = this.scene.add.rectangle(x, y - diameter / 2 - 8, diameter, 7, 0x000000, 0.65).setDepth(24);
     const hpBar = this.scene.add
@@ -216,6 +283,8 @@ export class PvpAvatarManager {
       pendingAttackGrowth: 0,
     };
     this.fighters.set(player.user_id, fighter);
+    // Everybody on this side shrinks together, so nobody is left oversized.
+    this.repackSide(player.team);
     if (enterFromCenter) this.playCenterEntrance(fighter, destination);
     if (this.options.idleWander) this.startIdleWander(fighter);
     return fighter;
@@ -298,13 +367,17 @@ export class PvpAvatarManager {
       fieldYMin,
       Math.min(arenaLayout.floorY - 200 - radius - SPAWN_GAP, this.options.fieldYMax)
     );
-    const yMin = dropIn ? this.options.spawnY : fieldYMin;
-    const yMax = dropIn ? this.options.spawnY : fieldYMax;
+    // A held army has nothing to settle it, so an arrival must be given a real
+    // place in the band. Left at the entrance height it simply stayed there,
+    // and newcomers piled into a line under the troops instead of joining them.
+    const placeInField = !dropIn || this.options.packToFit;
+    const yMin = placeInField ? fieldYMin : this.options.spawnY;
+    const yMax = placeInField ? fieldYMax : this.options.spawnY;
     let best = { x: (xMin + xMax) / 2, y: yMin, clearance: -Infinity };
 
     for (let attempt = 0; attempt < SPAWN_POSITION_ATTEMPTS; attempt += 1) {
       const x = Phaser.Math.FloatBetween(xMin, xMax);
-      const y = dropIn ? yMin : Phaser.Math.FloatBetween(yMin, yMax);
+      const y = placeInField ? Phaser.Math.FloatBetween(yMin, yMax) : yMin;
       let clearance = Infinity;
 
       for (const fighter of this.fighters.values()) {
@@ -423,6 +496,8 @@ export class PvpAvatarManager {
   }
 
   private destroyFighter(userId: string): void {
+    // Room freed by a casualty goes back to the survivors.
+    const leaving = this.fighters.get(userId);
     const fighter = this.fighters.get(userId);
     if (!fighter) return;
     fighter.wanderEvent?.remove(false);
@@ -432,6 +507,7 @@ export class PvpAvatarManager {
     fighter.powerLabel.destroy();
     fighter.nameLabel.destroy();
     this.fighters.delete(userId);
+    if (leaving) this.repackSide(leaving.player.team);
   }
 
   /** Keeps the HP bar and power label glued to their bouncing avatar. */

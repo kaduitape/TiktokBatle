@@ -453,6 +453,22 @@ Em **Admin → Personagens**: envie a folha em **Imagem**, ponha **colunas = 4**
 **linhas = 1**, **FPS = 8**, e envie as duas poses avulsas nos campos de dano e
 de ataque. Em **Editor de Arena** ajuste tamanho e posição.
 
+## A faixa de soldados na Guerra de Tanques
+
+Os soldados de um lado ocupam uma faixa na metade dele. Antes eles caíam por
+gravidade e assentavam **numa fileira só** — e uma fileira com meia centena de
+soldados é mais larga que meia arena, então a física empurrava as pontas para
+fora da tela.
+
+Agora o exército **fica parado na faixa** (sem gravidade, com atrito alto para
+um empurrão do vizinho não mandar ninguém à deriva) e **encolhe conforme
+lota**, de modo que sempre caiba. Até cerca de 25 por lado ninguém muda de
+tamanho; a partir daí o tamanho cai até um mínimo em que o rosto ainda se
+reconhece.
+
+Esse comportamento é só da Guerra de Tanques. O PvP continua com gravidade e
+com o tamanho crescendo pelo poder de cada lutador.
+
 ## De que lado cada personagem fica
 
 A posição horizontal (`pos_x`) fica gravada no personagem, mas **quem decide a
