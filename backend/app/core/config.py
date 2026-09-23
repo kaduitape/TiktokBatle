@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     image_api_key: str = ""
     image_api_base: str = "https://api.openai.com/v1"
     image_model: str = "gpt-image-1"
+    # Which service draws. One of openai | gemini | aisa; the panel can change
+    # it without a restart, and this is only the fallback for a fresh install.
+    image_provider: str = "openai"
+    # Per-provider keys, for a server that prefers the environment over the
+    # panel. A key pasted in the panel always wins over these.
+    gemini_api_key: str = ""
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_image_model: str = "gemini-2.5-flash-image"
+    aisa_api_key: str = ""
+    aisa_api_base: str = "https://api.aisa.one/v1"
+    aisa_image_model: str = "seedream-4-5-251128"
     # Generating a handful of poses takes a while; each call gets this long.
     image_timeout_seconds: float = 180.0
 

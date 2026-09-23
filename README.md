@@ -206,6 +206,38 @@ o prompt dizendo apenas o que muda.
 que o modelo inventar, e a imagem enviada vira o **quadro 1** da animação.
 Nesse caso a descrição vira opcional (ajuda o modelo a entender o desenho).
 
+### Quem desenha: OpenAI, Gemini ou AIsa
+
+Três serviços podem gerar a arte, e o painel troca entre eles em
+**Gerar sprites → Quem desenha**. **Cada um guarda a própria chave**, então ir
+para outro e voltar não exige colar a chave de novo.
+
+| Serviço | Modelo padrão | Fundo transparente | Observação |
+|---|---|---|---|
+| OpenAI | `gpt-image-1` | **sim**, é um parâmetro | o mais confiável para sprite |
+| Google Gemini | `gemini-2.5-flash-image` | não, só pedido no texto | rápido e barato |
+| AIsa | `seedream-4-5-251128` | não, só pedido no texto | exige imagem grande |
+
+O que muda na prática:
+
+- **Fundo transparente.** Só a OpenAI tem o recurso de verdade. Nos outros dois
+  ele é pedido na frase do prompt e às vezes volta com fundo branco — que na
+  arena vira um retângulo branco atrás do personagem. O painel avisa isso ao
+  escolher um deles; confira a prévia antes de aplicar.
+- **Tamanho do quadro.** A AIsa recusa imagens abaixo de ~3,7 megapixels, então
+  o padrão dela é `1600x2400` em vez do `1024x1536` dos outros. O Gemini não
+  aceita tamanho nenhum: devolve o que quiser, e o montador da folha normaliza
+  as células depois.
+- **Como a edição funciona.** Cada serviço recebe a imagem de referência de um
+  jeito — a OpenAI como upload em `/images/edits`, o Gemini como `inline_data`
+  no mesmo `generateContent`, a AIsa como um item do campo `image` no
+  `/images/generations`. Isso tudo fica em `image_providers.py`; o resto do
+  sistema só pede "desenhe isto" e "mude só isto".
+
+Pelo `.env` do servidor: `BATTLE_IMAGE_PROVIDER`, e a chave de cada um em
+`BATTLE_IMAGE_API_KEY`, `BATTLE_GEMINI_API_KEY` e `BATTLE_AISA_API_KEY`. Uma
+chave colada no painel tem prioridade sobre a do `.env`.
+
 ### A chave da API de imagem
 
 Há dois lugares para colocá-la, e a do painel tem prioridade:

@@ -52,40 +52,105 @@ class GenerateOut(BaseModel):
 
 class KeyIn(BaseModel):
     key: str = Field(min_length=8, max_length=400)
+    # Which service the key belongs to. Omitted means the one in use.
+    provider: str | None = None
 
 
 @router.get("/status")
 async def studio_status(_: str = Depends(require_admin)):
-    """Whether the panel can generate, and which key is in play. The key is
-    only ever described -- where it came from and its last four characters --
-    never returned."""
-    key, source = await sprite_studio.resolve_key()
+    """Which service is drawing, whether it can, and the state of every key.
+
+    A key is only ever described -- where it came from and its last four
+    characters -- never returned.
+    """
+    provider = await sprite_studio.resolve_provider()
+    key, source = await sprite_studio.resolve_key(provider)
+
+    providers = []
+    for entry in sprite_studio.PROVIDER_CATALOG():
+        entry_key, entry_source = await sprite_studio.resolve_key(entry["id"])
+        providers.append(
+            {
+                **entry,
+                "configured": bool(entry_key),
+                "source": entry_source,
+                "masked": secret_store.mask(entry_key),
+                "model": _model_of(entry["id"]),
+            }
+        )
+
     return {
         "configured": bool(key),
         "source": source,
         "masked": secret_store.mask(key),
-        "model": settings.image_model,
+        "provider": provider,
+        "model": _model_of(provider),
+        "providers": providers,
         "max_poses": MAX_POSES,
     }
 
 
+def _model_of(provider: str) -> str:
+    return {
+        "openai": settings.image_model,
+        "gemini": settings.gemini_image_model,
+        "aisa": settings.aisa_image_model,
+    }.get(provider, settings.image_model)
+
+
+class ProviderIn(BaseModel):
+    provider: str
+
+
+@router.put("/provider")
+async def choose_provider(
+    body: ProviderIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    """Switches which service draws. Keys are kept per provider, so going back
+    to a previous one does not mean pasting its key again."""
+    try:
+        name = await sprite_studio.set_provider(db, body.provider)
+    except SpriteStudioError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    key, source = await sprite_studio.resolve_key(name)
+    return {"provider": name, "configured": bool(key), "source": source}
+
+
 @router.put("/key")
 async def save_key(body: KeyIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
-    """Stores the key pasted in the panel. It is written to the database as
-    given -- the app has no secret storage of its own -- so a database dump
-    carries it."""
-    await secret_store.set_value(db, secret_store.IMAGE_API_KEY, body.key.strip())
-    key, source = await sprite_studio.resolve_key()
-    return {"configured": bool(key), "source": source, "masked": secret_store.mask(key)}
+    """Stores the key pasted in the panel, under the provider it belongs to.
+
+    It is written to the database as given -- the app has no secret storage of
+    its own -- so a database dump carries it.
+    """
+    provider = (body.provider or await sprite_studio.resolve_provider()).lower()
+    await secret_store.set_value(db, secret_store.image_key_name(provider), body.key.strip())
+    key, source = await sprite_studio.resolve_key(provider)
+    return {
+        "provider": provider,
+        "configured": bool(key),
+        "source": source,
+        "masked": secret_store.mask(key),
+    }
 
 
 @router.delete("/key")
-async def delete_key(db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
-    """Removes the saved key. BATTLE_IMAGE_API_KEY, if the server sets one,
-    takes over again."""
-    await secret_store.clear(db, secret_store.IMAGE_API_KEY)
-    key, source = await sprite_studio.resolve_key()
-    return {"configured": bool(key), "source": source, "masked": secret_store.mask(key)}
+async def delete_key(
+    provider: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    """Removes the saved key for a provider. A key in the server's environment,
+    if there is one, takes over again."""
+    name = (provider or await sprite_studio.resolve_provider()).lower()
+    await secret_store.clear(db, secret_store.image_key_name(name))
+    key, source = await sprite_studio.resolve_key(name)
+    return {
+        "provider": name,
+        "configured": bool(key),
+        "source": source,
+        "masked": secret_store.mask(key),
+    }
 
 
 @router.post("/key/test")
@@ -93,7 +158,10 @@ async def test_key(body: KeyIn | None = None, _: str = Depends(require_admin)):
     """Confirms a key works before anyone spends credits finding out it does
     not. Pass a key to check one before saving, or none to check the saved one."""
     try:
-        message = await sprite_studio.verify_key(body.key.strip() if body else None)
+        message = await sprite_studio.verify_key(
+            body.key.strip() if body and body.key else None,
+            body.provider if body else None,
+        )
     except SpriteStudioError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "message": message}

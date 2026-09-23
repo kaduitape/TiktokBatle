@@ -12,6 +12,16 @@ from app.models.models import AppSecret
 IMAGE_API_KEY = "image_api_key"
 
 
+def image_key_name(provider: str) -> str:
+    """Where a given provider's key is kept.
+
+    OpenAI keeps the original, unsuffixed name so a server that already had a
+    key saved does not lose it when the providers were added.
+    """
+    provider = (provider or "openai").lower()
+    return IMAGE_API_KEY if provider == "openai" else f"{IMAGE_API_KEY}:{provider}"
+
+
 async def get(name: str) -> str | None:
     async with AsyncSessionLocal() as db:
         row = await db.get(AppSecret, name)

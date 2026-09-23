@@ -21,6 +21,7 @@ from PIL import Image
 
 from app.core.config import settings
 from app.services import secret_store
+from app.services.image_providers import ImageProvider, ImageProviderError, build, catalog
 from app.services.sprite_sheet import SheetLayout, compose_sheet
 
 logger = logging.getLogger("sprite_studio")
@@ -40,22 +41,57 @@ STYLE_RULES = (
 )
 
 
-class SpriteStudioError(RuntimeError):
-    """Something the admin can act on -- shown as-is in the panel."""
+class SpriteStudioError(ImageProviderError):
+    """Something the admin can act on -- shown as-is in the panel.
 
-
-async def resolve_key() -> tuple[str | None, str | None]:
-    """The key in use and where it came from.
-
-    A key pasted in the panel wins over BATTLE_IMAGE_API_KEY, so the panel is
-    always the last word on a server where both were set -- otherwise saving a
-    new key would appear to do nothing.
+    Subclasses the provider error so a failure raised deep inside a provider
+    reaches the panel with its own wording intact.
     """
-    saved = await secret_store.get(secret_store.IMAGE_API_KEY)
+
+
+# What the panel offers. The list comes from the provider classes themselves.
+PROVIDER_CATALOG = catalog
+
+
+async def resolve_provider() -> str:
+    """Which service is drawing right now."""
+    chosen = await secret_store.get(_PROVIDER_SETTING)
+    return (chosen or settings.image_provider or "openai").lower()
+
+
+async def set_provider(db, name: str) -> str:
+    name = (name or "").lower()
+    if name not in {entry["id"] for entry in catalog()}:
+        raise SpriteStudioError(f"Provedor desconhecido: {name!r}.")
+    await secret_store.set_value(db, _PROVIDER_SETTING, name)
+    return name
+
+
+_PROVIDER_SETTING = "image_provider"
+
+
+def _env_key(provider: str) -> str:
+    return {
+        "openai": settings.image_api_key,
+        "gemini": settings.gemini_api_key,
+        "aisa": settings.aisa_api_key,
+    }.get(provider, "")
+
+
+async def resolve_key(provider: str | None = None) -> tuple[str | None, str | None]:
+    """The key in use for a provider and where it came from.
+
+    Each service has its own key, so switching provider does not mean pasting
+    over the previous one. A key pasted in the panel wins over the server's
+    environment, otherwise saving a new key would appear to do nothing.
+    """
+    provider = provider or await resolve_provider()
+    saved = await secret_store.get(secret_store.image_key_name(provider))
     if saved:
         return saved, "panel"
-    if settings.image_api_key:
-        return settings.image_api_key, "env"
+    from_env = _env_key(provider)
+    if from_env:
+        return from_env, "env"
     return None, None
 
 
@@ -64,47 +100,22 @@ async def is_configured() -> bool:
     return bool(key)
 
 
-async def _require_key() -> str:
-    key, _ = await resolve_key()
+_ENV_VAR = {
+    "openai": "BATTLE_IMAGE_API_KEY",
+    "gemini": "BATTLE_GEMINI_API_KEY",
+    "aisa": "BATTLE_AISA_API_KEY",
+}
+
+
+async def _require_key(provider: str) -> str:
+    key, _ = await resolve_key(provider)
     if not key:
         raise SpriteStudioError(
-            "Nenhuma chave de imagem configurada. Cole a chave em Admin -> Gerar sprites, "
-            "ou defina BATTLE_IMAGE_API_KEY no .env do servidor."
+            f"Nenhuma chave configurada para {provider}. Cole a chave em "
+            f"Admin -> Gerar sprites, ou defina {_ENV_VAR.get(provider, 'a variável')} "
+            "no .env do servidor."
         )
     return key
-
-
-def _decode(payload: dict) -> Image.Image:
-    try:
-        b64 = payload["data"][0]["b64_json"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise SpriteStudioError(f"Resposta inesperada da API de imagem: {payload}") from exc
-    return Image.open(BytesIO(base64.b64decode(b64))).convert("RGBA")
-
-
-def _explain(response: httpx.Response) -> str:
-    """Surfaces the provider's own message; a generic 'deu erro' would leave
-    the admin guessing between a bad key, no credit, and a rejected prompt."""
-    try:
-        detail = response.json().get("error", {}).get("message")
-    except Exception:  # noqa: BLE001 - a non-JSON error body is still useful
-        detail = None
-    detail = detail or response.text[:300]
-    if response.status_code in (401, 403):
-        return f"A chave de imagem foi recusada ({response.status_code}): {detail}"
-    if response.status_code == 429:
-        return f"Limite da API de imagem atingido: {detail}"
-    return f"A API de imagem respondeu {response.status_code}: {detail}"
-
-
-async def _post(client: httpx.AsyncClient, path: str, **kwargs) -> Image.Image:
-    try:
-        response = await client.post(path, **kwargs)
-    except httpx.HTTPError as exc:
-        raise SpriteStudioError(f"Não foi possível falar com a API de imagem: {exc}") from exc
-    if response.status_code >= 400:
-        raise SpriteStudioError(_explain(response))
-    return _decode(response.json())
 
 
 def _as_png(image: Image.Image) -> bytes:
@@ -113,39 +124,12 @@ def _as_png(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
-async def _edit(client: httpx.AsyncClient, base: bytes, instruction: str, size: str) -> Image.Image:
-    """Asks the model to change one thing about an image it is handed. This is
-    the whole trick: identity comes from the reference, not from the words."""
-    return await _post(
-        client,
-        "/images/edits",
-        data={
-            "model": settings.image_model,
-            "prompt": (
-                "Keep the exact same character, art style, colors, size and framing "
-                f"as the reference image. Change only this: {instruction}. {STYLE_RULES}"
-            ),
-            "size": size,
-            "background": "transparent",
-            "n": "1",
-        },
-        files={"image": ("base.png", base, "image/png")},
+def _edit_instruction(instruction: str) -> str:
+    """The whole trick: identity comes from the reference, not from the words."""
+    return (
+        "Keep the exact same character, art style, colors, size and framing "
+        f"as the reference image. Change only this: {instruction}. {STYLE_RULES}"
     )
-
-
-def _open_client(key: str) -> httpx.AsyncClient:
-    try:
-        return httpx.AsyncClient(
-            base_url=settings.image_api_base.rstrip("/"),
-            headers={"Authorization": f"Bearer {key}"},
-            timeout=settings.image_timeout_seconds,
-        )
-    except httpx.InvalidURL as exc:
-        # A typo in BATTLE_IMAGE_API_BASE would otherwise blow up as an opaque
-        # 500 with no hint about which setting is wrong.
-        raise SpriteStudioError(
-            f"BATTLE_IMAGE_API_BASE inválido ({settings.image_api_base!r}): {exc}"
-        ) from exc
 
 
 @dataclass
@@ -182,7 +166,13 @@ async def generate_artwork(
         raise SpriteStudioError("Escolha pelo menos uma pose ou uma imagem de ação.")
 
     frames: list[Image.Image] = []
-    key = await _require_key()
+    provider_name = await resolve_provider()
+    key = await _require_key(provider_name)
+    provider: ImageProvider = build(provider_name, key)
+    if size == DEFAULT_SIZE:
+        # Each service accepts a different frame size; honour an explicit
+        # choice but fall back to whatever this one actually takes.
+        size = provider.default_size
 
     # Each image is a separate call to the provider and takes its own handful
     # of seconds, so the caller is told where we are rather than being left to
@@ -197,7 +187,7 @@ async def generate_artwork(
         if on_progress:
             on_progress(done, total, label)
 
-    async with _open_client(key) as client:
+    async with provider.open_client() as client:
         if base_image is not None:
             # The uploaded caricature is the character's neutral frame, and the
             # reference every other image is edited from.
@@ -209,17 +199,10 @@ async def generate_artwork(
             pose_instructions = poses
             step("caricatura enviada")
         else:
-            first = await _post(
+            first = await provider.generate(
                 client,
-                "/images/generations",
-                json={
-                    "model": settings.image_model,
-                    "prompt": f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
-                    "size": size,
-                    "background": "transparent",
-                    "output_format": "png",
-                    "n": 1,
-                },
+                f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
+                size,
             )
             frames.append(first)
             pose_instructions = poses[1:]
@@ -229,18 +212,24 @@ async def generate_artwork(
         reference_png = _as_png(frames[0])
 
         for index, pose in enumerate(pose_instructions, start=len(frames) + 1):
-            frames.append(await _edit(client, reference_png, f"the pose becomes {pose}", size))
+            frames.append(
+                await provider.edit(
+                    client, reference_png, _edit_instruction(f"the pose becomes {pose}"), size
+                )
+            )
             logger.info("sprite studio: quadro %d gerado", index)
             step(f"quadro {index}")
 
         hit = fire = None
         if want_hit:
             hit = _as_png(
-                await _edit(
+                await provider.edit(
                     client,
                     reference_png,
-                    "the character is being hit and hurt right now: recoiling backwards, "
-                    "face twisted in pain, eyes squeezed shut, arms thrown up defensively",
+                    _edit_instruction(
+                        "the character is being hit and hurt right now: recoiling backwards, "
+                        "face twisted in pain, eyes squeezed shut, arms thrown up defensively"
+                    ),
                     size,
                 )
             )
@@ -248,11 +237,13 @@ async def generate_artwork(
             step("pose de dano")
         if want_fire:
             fire = _as_png(
-                await _edit(
+                await provider.edit(
                     client,
                     reference_png,
-                    "the character is firing a big cannon shot right now: leaning into the "
-                    "recoil, determined shouting expression, arms braced forward",
+                    _edit_instruction(
+                        "the character is attacking right now: throwing a bomb with one arm "
+                        "stretched out, leaning forward, determined shouting expression"
+                    ),
                     size,
                 )
             )
@@ -263,18 +254,14 @@ async def generate_artwork(
     return StudioResult(sheet=sheet, hit=hit, fire=fire)
 
 
-async def verify_key(candidate: str | None = None) -> str:
-    """Checks a key against the provider without generating anything.
+async def verify_key(candidate: str | None = None, provider: str | None = None) -> str:
+    """Checks a key against the service without generating anything.
 
     Listing models costs nothing, so the panel can confirm a key works before
     the admin spends credits finding out that it does not.
     """
-    key = candidate or await _require_key()
-    async with _open_client(key) as client:
-        try:
-            response = await client.get("/models")
-        except httpx.HTTPError as exc:
-            raise SpriteStudioError(f"Não foi possível falar com a API de imagem: {exc}") from exc
-        if response.status_code >= 400:
-            raise SpriteStudioError(_explain(response))
-    return "Chave aceita pela API."
+    provider_name = provider or await resolve_provider()
+    key = candidate or await _require_key(provider_name)
+    built = build(provider_name, key)
+    async with built.open_client() as client:
+        return await built.verify(client)

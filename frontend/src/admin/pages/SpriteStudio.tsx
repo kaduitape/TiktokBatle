@@ -1,12 +1,26 @@
 import { useEffect, useState } from "react";
 import { API_BASE, api } from "../../api/client";
 
+/** One image service the panel can draw with. */
+interface ProviderInfo {
+  id: string;
+  label: string;
+  default_size: string;
+  supports_transparency: boolean;
+  configured: boolean;
+  source: "panel" | "env" | null;
+  masked: string | null;
+  model: string;
+}
+
 interface Status {
   configured: boolean;
   /** "panel" = colada aqui, "env" = variável do servidor, null = nenhuma. */
   source: "panel" | "env" | null;
   masked: string | null;
   model: string;
+  provider: string;
+  providers: ProviderInfo[];
   max_poses: number;
 }
 
@@ -91,6 +105,14 @@ interface SpriteModel {
   created_at: string;
 }
 
+/** The environment variable each service reads, for the note about keeping a
+ * key out of a shared database. */
+const ENV_VAR: Record<string, string> = {
+  openai: "BATTLE_IMAGE_API_KEY",
+  gemini: "BATTLE_GEMINI_API_KEY",
+  aisa: "BATTLE_AISA_API_KEY",
+};
+
 interface Job {
   job_id: string;
   status: "running" | "done" | "error";
@@ -147,24 +169,37 @@ export default function SpriteStudio() {
     }
   };
 
+  const provider = status?.provider ?? "openai";
+  const current = status?.providers?.find((entry) => entry.id === provider);
+
   const saveKey = () =>
     keyAction(async () => {
-      await api.put("/api/sprites/key", { key: keyInput.trim() });
+      await api.put("/api/sprites/key", { key: keyInput.trim(), provider });
       setKeyInput("");
     }, "Chave salva.");
 
   const testKey = () =>
     keyAction(async () => {
-      const body = keyInput.trim() ? { key: keyInput.trim() } : undefined;
-      const res = await api.post<{ message: string }>("/api/sprites/key/test", body);
+      const res = await api.post<{ message: string }>("/api/sprites/key/test", {
+        key: keyInput.trim() || undefined,
+        provider,
+      });
       setKeyMsg(res.message);
     }, "Chave aceita pela API.");
 
   const removeKey = () =>
     keyAction(async () => {
-      await api.del("/api/sprites/key");
+      await api.del(`/api/sprites/key?provider=${provider}`);
       setKeyInput("");
     }, "Chave removida.");
+
+  /** Each service keeps its own key, so switching back does not mean pasting
+   * the previous one again. */
+  const chooseProvider = (id: string) =>
+    keyAction(async () => {
+      await api.put("/api/sprites/provider", { provider: id });
+      setKeyInput("");
+    }, "Provedor alterado.");
 
   const uploadBase = async (file: File) => {
     setBusy(true);
@@ -336,17 +371,52 @@ export default function SpriteStudio() {
         className="card"
         style={{ borderLeft: `4px solid ${status?.configured ? "#4ade80" : "#e0a01b"}` }}
       >
-        <h3>Chave da API de imagem</h3>
+        <h3>Quem desenha</h3>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 10px" }}>
+          Cada serviço guarda a própria chave — trocar de um para o outro e voltar não
+          exige colar a chave de novo.
+        </p>
+        <div className="gift-filters" style={{ marginBottom: 12 }}>
+          {(status?.providers ?? []).map((entry) => (
+            <button
+              key={entry.id}
+              className={`chip ${entry.id === provider ? "on" : ""}`}
+              onClick={() => chooseProvider(entry.id)}
+              disabled={keyBusy || entry.id === provider}
+            >
+              {entry.configured ? "✅" : "⚠️"} {entry.label}
+            </button>
+          ))}
+        </div>
+
+        {current && !current.supports_transparency && (
+          <p style={{ color: "#e0a01b", fontSize: 12, margin: "0 0 10px" }}>
+            Este serviço não tem um botão de fundo transparente — ele é pedido no texto e
+            às vezes volta com fundo branco. Confira a prévia antes de aplicar; se vier com
+            fundo, gere pela OpenAI, que tem o recurso de verdade.
+          </p>
+        )}
+
+        <h3 style={{ marginTop: 0 }}>Chave de {current?.label ?? "imagem"}</h3>
         {status?.configured ? (
           <p style={{ fontSize: 13 }}>
             Configurada ({status.masked}) —{" "}
             {status.source === "panel" ? "colada aqui no painel" : "vinda do .env do servidor"}.
+            Modelo: <code>{status.model}</code>.
           </p>
         ) : (
           <p style={{ fontSize: 13, lineHeight: 1.6 }}>
-            Pegue uma chave em <code>platform.openai.com</code> e cole abaixo. Sem ela o
-            resto do sistema funciona normalmente — só esta página fica desligada, e você
-            ainda pode montar folhas à mão com <code>scripts/make_spritesheet.py</code>.
+            Pegue uma chave em{" "}
+            <code>
+              {provider === "gemini"
+                ? "aistudio.google.com"
+                : provider === "aisa"
+                  ? "aisa.one"
+                  : "platform.openai.com"}
+            </code>{" "}
+            e cole abaixo. Sem ela o resto do sistema funciona normalmente — só esta página
+            fica desligada, e você ainda pode montar folhas à mão com{" "}
+            <code>scripts/make_spritesheet.py</code>.
           </p>
         )}
 
@@ -354,7 +424,7 @@ export default function SpriteStudio() {
         <input
           type="password"
           autoComplete="off"
-          placeholder="sk-..."
+          placeholder={provider === "gemini" ? "AIza..." : "sk-..."}
           value={keyInput}
           onChange={(e) => setKeyInput(e.target.value)}
           style={{ width: "100%", fontFamily: "monospace" }}
@@ -384,7 +454,7 @@ export default function SpriteStudio() {
           A chave é guardada no banco de dados deste servidor e nunca volta para o
           navegador — o painel só mostra os quatro últimos caracteres. Como o sistema não
           tem cofre de senhas, um backup do banco carrega a chave junto: se o servidor for
-          compartilhado, prefira a variável <code>BATTLE_IMAGE_API_KEY</code> no{" "}
+          compartilhado, prefira a variável <code>{ENV_VAR[provider] ?? "BATTLE_IMAGE_API_KEY"}</code> no{" "}
           <code>.env</code>. Uma chave colada aqui tem prioridade sobre a do <code>.env</code>.
         </p>
       </div>
