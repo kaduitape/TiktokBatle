@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import type { PlayerPayload } from "../../../types/events";
 import { bakeAvatarTexture } from "../avatarTexture";
+import { layoutNameLabels, type NameLabelTarget } from "../nameLabels";
 import {
   arenaLayout,
   ARENA_WIDTH,
@@ -107,14 +108,20 @@ export class AvatarManager {
     entry.label?.setText(displayName(player));
   }
 
-  /** Keeps each name glued under its bouncing avatar. */
+  /** Keeps each name glued under its bouncing avatar, and out of the way of
+   * its neighbours' names. */
   syncLabels(): void {
+    const targets: NameLabelTarget[] = [];
     for (const entry of this.avatars.values()) {
-      if (!entry.label) continue;
       const sprite = entry.body;
-      if (!sprite.active) continue;
-      entry.label.setPosition(sprite.x, sprite.y + sprite.displayHeight / 2 + 4);
+      if (!entry.label || !sprite.active) continue;
+      targets.push({
+        label: entry.label,
+        x: sprite.x,
+        y: sprite.y + sprite.displayHeight / 2 + 6,
+      });
     }
+    layoutNameLabels(targets);
   }
 
   /** Re-bake and swap the sprite's texture when the person's photo changed. */

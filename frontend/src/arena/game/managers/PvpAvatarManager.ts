@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import type { PvpPlayerPayload } from "../../../types/events";
 import { bakeAvatarTexture } from "../avatarTexture";
+import { layoutNameLabels } from "../nameLabels";
 import { arenaLayout, CEILING_Y, CENTER_X, SIDE_A_ZONE, SIDE_B_ZONE, SPAWN_TOP_Y } from "../constants";
 
 // Baked at more than twice the smallest on-screen size so the circle stays
@@ -441,12 +442,27 @@ export class PvpAvatarManager {
       fighter.hpBarBg.setPosition(sprite.x, top);
       fighter.hpBar.setPosition(sprite.x - diameter / 2 + 1, top);
       fighter.powerLabel.setPosition(sprite.x, top - 14);
-      fighter.nameLabel.setPosition(sprite.x, sprite.y + diameter / 2 + 3);
+
 
       const pct = Phaser.Math.Clamp(fighter.power / Math.max(1, fighter.peakPower), 0, 1);
       fighter.hpBar.width = Math.max(1, (diameter - 2) * pct);
       fighter.hpBar.fillColor = pct <= 0.25 ? 0xef4444 : pct <= 0.6 ? 0xfacc15 : 0x4ade80;
     }
+
+    // Names are placed together, after the bars: a packed arena puts several
+    // avatars side by side, and each name centred under its own would overlap
+    // the next into an unreadable smudge.
+    layoutNameLabels(
+      this.all()
+        .filter((f) => f.sprite.active)
+        .map((f) => ({
+          label: f.nameLabel,
+          x: f.sprite.x,
+          y: f.sprite.y + f.diameter / 2 + 4,
+          // Clear of the HP bar, which sits 8px above the avatar.
+          yAbove: f.sprite.y - f.diameter / 2 - 26,
+        })),
+    );
   }
 
   removeStale(activeUserIds: Set<string>): void {
