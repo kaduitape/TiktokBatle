@@ -37,6 +37,28 @@ class SheetLayout:
         return self.frame_height * self.rows
 
 
+def compose_rows(rows: list[list[Image.Image]]) -> SheetLayout:
+    """Lays clips out one per row, every cell the same size.
+
+    The game slices a sheet by dividing it into `columns` x `rows` equal cells,
+    so a clip can only be addressed as "row r, first n frames" if every row is
+    the same width. The widest clip decides the width and the shorter ones are
+    padded with empty cells, which no clip ever plays because each declares how
+    many frames it owns.
+    """
+    rows = [row for row in rows if row]
+    if not rows:
+        raise ValueError("nenhuma pose para montar")
+
+    columns = max(len(row) for row in rows)
+    flat: list[Image.Image | None] = []
+    for row in rows:
+        flat.extend(row)
+        flat.extend([None] * (columns - len(row)))
+
+    return _compose(flat, columns)
+
+
 def compose_sheet(
     frames: list[Image.Image],
     columns: int = 0,
@@ -52,14 +74,29 @@ def compose_sheet(
     """
     if not frames:
         raise ValueError("nenhuma pose para montar")
+    return _compose(list(frames), columns if columns > 0 else len(frames), cell)
 
-    trimmed = []
+
+def _compose(
+    frames: list[Image.Image | None],
+    columns: int,
+    cell: tuple[int, int] | None = None,
+) -> SheetLayout:
+    """The shared grid builder. `None` leaves a cell empty."""
+    trimmed: list[Image.Image | None] = []
     for frame in frames:
+        if frame is None:
+            trimmed.append(None)
+            continue
         img = frame.convert("RGBA")
         trimmed.append(img.crop(img.getbbox() or (0, 0, img.width, img.height)))
 
-    cell_w, cell_h = cell or (max(f.width for f in trimmed), max(f.height for f in trimmed))
-    columns = columns if columns > 0 else len(trimmed)
+    drawn = [f for f in trimmed if f is not None]
+    if not drawn:
+        raise ValueError("nenhuma pose para montar")
+
+    cell_w, cell_h = cell or (max(f.width for f in drawn), max(f.height for f in drawn))
+    columns = max(1, columns)
     rows = -(-len(trimmed) // columns)  # ceiling division
 
     scale = min(1.0, MAX_SIDE / (cell_w * columns), MAX_SIDE / (cell_h * rows))
@@ -68,6 +105,8 @@ def compose_sheet(
 
     sheet = Image.new("RGBA", (cell_w * columns, cell_h * rows), (0, 0, 0, 0))
     for i, frame in enumerate(trimmed):
+        if frame is None:
+            continue
         ratio = min(cell_w / frame.width, cell_h / frame.height)
         resized = frame.resize(
             (max(1, int(frame.width * ratio)), max(1, int(frame.height * ratio))),
@@ -84,7 +123,7 @@ def compose_sheet(
         png=buffer.getvalue(),
         columns=columns,
         rows=rows,
-        frame_count=len(trimmed),
+        frame_count=len(drawn),
         frame_width=cell_w,
         frame_height=cell_h,
     )

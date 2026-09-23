@@ -57,6 +57,17 @@ class Character(Base):
     sprite_frame_count: Mapped[int] = mapped_column(Integer, default=0)
     sprite_fps: Mapped[int] = mapped_column(Integer, default=10)
 
+    # What each row of the sheet is. One looping row makes a character that
+    # repeats the same few frames forever, which reads as a machine rather
+    # than a creature. With clips the base row loops and the others are
+    # gestures -- a blink, a hop, a tongue out -- slipped in now and then.
+    #
+    # [{"name": "piscada", "row": 1, "frames": 3, "fps": 14,
+    #   "kind": "gesture", "weight": 3}]
+    #
+    # Empty keeps the old behaviour: the whole grid as one loop.
+    sprite_clips: Mapped[list] = mapped_column(JSON, default=list)
+
     # Reaction art: single stills swapped in for a moment when the character
     # does something. Optional -- without them the character just keeps its
     # idle art and the existing shake/tint still plays.
@@ -94,6 +105,11 @@ class SpriteModel(Base):
 
     hit_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     fire_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Which row of the sheet is which movement -- see Character.sprite_clips.
+    # Kept here too, otherwise applying a model would hand a character a sheet
+    # of gestures with nothing saying where they are.
+    sprite_clips: Mapped[list] = mapped_column(JSON, default=list)
 
     # What produced it, kept so a model can be regenerated or tweaked later
     # without remembering what was typed months ago.

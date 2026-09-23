@@ -49,6 +49,7 @@ async def build_state_sync(session_id: str) -> dict | None:
                 "outline": c.outline,
                 "glow": c.glow,
                 "sprite_columns": c.sprite_columns,
+                "sprite_clips": c.sprite_clips or [],
                 "sprite_rows": c.sprite_rows,
                 "sprite_frame_count": c.sprite_frame_count,
                 "sprite_fps": c.sprite_fps,

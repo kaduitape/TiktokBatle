@@ -20,7 +20,22 @@ interface Character {
   sprite_fps: number;
   hit_image_url: string | null;
   fire_image_url: string | null;
+  /** Which row of the sheet is which movement, set by Gerar sprites. Empty
+   * means the whole grid is one loop, which is how sheets worked before
+   * gestures existed. */
+  sprite_clips: Clip[];
   xp_max: number;
+}
+
+/** One named row of a sprite sheet. */
+interface Clip {
+  name: string;
+  row: number;
+  frames: number;
+  kind?: "idle" | "gesture";
+  weight?: number;
+  fps?: number;
+  lift?: number;
 }
 
 const empty: Omit<Character, "id"> = {
@@ -43,6 +58,7 @@ const empty: Omit<Character, "id"> = {
   sprite_fps: 10,
   hit_image_url: null,
   fire_image_url: null,
+  sprite_clips: [],
   xp_max: 100000,
 };
 
@@ -57,6 +73,7 @@ interface SpriteModel {
   sprite_fps: number;
   hit_image_url: string | null;
   fire_image_url: string | null;
+  sprite_clips: Clip[];
 }
 
 export default function Characters() {
@@ -110,6 +127,9 @@ export default function Characters() {
       sprite_fps: model.sprite_fps,
       hit_image_url: model.hit_image_url,
       fire_image_url: model.fire_image_url,
+      // Without the clip list the game plays every row as one loop, gestures
+      // included -- the character would blink and hop as part of its walk.
+      sprite_clips: model.sprite_clips ?? [],
     });
     setNotice({
       kind: "ok",
@@ -190,6 +210,9 @@ export default function Characters() {
                   <option key={model.id} value={model.id}>
                     {model.name}
                     {model.sprite_columns > 0 ? ` · ${model.sprite_frame_count} quadros` : ""}
+                    {(model.sprite_clips?.filter((c) => c.kind === "gesture").length ?? 0) > 0
+                      ? ` · ${model.sprite_clips.filter((c) => c.kind === "gesture").length} gestos`
+                      : ""}
                     {model.hit_image_url ? " · dano" : ""}
                     {model.fire_image_url ? " · ataque" : ""}
                   </option>

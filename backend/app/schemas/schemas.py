@@ -57,6 +57,8 @@ class CharacterIn(BaseModel):
     sprite_rows: int = 1
     sprite_frame_count: int = 0
     sprite_fps: int = 10
+    #: Rows of the sheet, named. See Character.sprite_clips.
+    sprite_clips: list[dict[str, Any]] = Field(default_factory=list)
     hit_image_url: str | None = None
     fire_image_url: str | None = None
     xp_max: int = 100_000
@@ -209,6 +211,8 @@ class SpriteModelIn(BaseModel):
     sprite_fps: int = 10
     hit_image_url: str | None = None
     fire_image_url: str | None = None
+    #: Which row of the sheet is which movement. See Character.sprite_clips.
+    sprite_clips: list[dict[str, Any]] = Field(default_factory=list)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
 
@@ -223,6 +227,7 @@ class SpriteModelOut(BaseModel):
     sprite_fps: int
     hit_image_url: str | None = None
     fire_image_url: str | None = None
+    sprite_clips: list[dict[str, Any]] = Field(default_factory=list)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
     created_at: datetime

@@ -22,6 +22,28 @@ interface Status {
   provider: string;
   providers: ProviderInfo[];
   max_poses: number;
+  max_gestures: number;
+  max_gesture_poses: number;
+}
+
+/** One row of the sheet, named, in the shape the game reads it. */
+interface Clip {
+  name: string;
+  row: number;
+  frames: number;
+  kind?: "idle" | "gesture";
+  weight?: number;
+  fps?: number;
+  lift?: number;
+}
+
+/** A short movement the character does between loops of the base one. */
+interface Gesture {
+  name: string;
+  poses: string[];
+  lift: number;
+  weight: number;
+  fps: number;
 }
 
 interface Sheet {
@@ -33,6 +55,7 @@ interface Sheet {
   frame_height: number;
   hit_url: string | null;
   fire_url: string | null;
+  clips: Clip[];
 }
 
 interface Character {
@@ -89,6 +112,91 @@ const POSE_PRESETS: { label: string; poses: string[] }[] = [
   },
 ];
 
+/** The little things a character does when nothing is happening.
+ *
+ * The base loop alone is a machine: the same frames, forever. These are played
+ * once, at uneven intervals, and hand the character straight back to the loop
+ * -- which is the difference between a character that is running and one that
+ * is alive. Each becomes its own row of the sheet.
+ *
+ * `lift` is how far off the floor the sprite rises while the clip plays: the
+ * sheet stands every frame on its feet, so a jump drawn as art alone never
+ * leaves the ground.
+ */
+const GESTURE_PRESETS: (Gesture & { label: string })[] = [
+  {
+    label: "👀 Piscada",
+    name: "piscada",
+    weight: 4,
+    fps: 14,
+    lift: 0,
+    poses: [
+      "os olhos estão quase fechados, pálpebras descendo, o resto do corpo igual ao da referência",
+      "os olhos estão completamente fechados, pálpebras relaxadas, o resto do corpo igual ao da referência",
+    ],
+  },
+  {
+    label: "🦘 Pulinho",
+    name: "pulo",
+    weight: 2,
+    fps: 12,
+    lift: 0.18,
+    poses: [
+      "agachado, joelhos bem dobrados, braços recuados, prestes a saltar",
+      "no ar, pernas dobradas e recolhidas para trás, braços esticados para cima, boca aberta de alegria",
+      "aterrissando, joelhos dobrados amortecendo, braços descendo pelos lados",
+    ],
+  },
+  {
+    label: "😛 Língua de fora",
+    name: "lingua",
+    weight: 2,
+    fps: 10,
+    lift: 0,
+    poses: [
+      "a boca está começando a abrir, os olhos apertados de travessura",
+      "a língua está bem de fora, os dois olhos apertados, cabeça levemente inclinada, cara de deboche",
+      "a língua está voltando para dentro, a boca quase fechada, um olho ainda apertado",
+    ],
+  },
+  {
+    label: "🥊 Pose de luta",
+    name: "luta",
+    weight: 2,
+    fps: 12,
+    lift: 0,
+    poses: [
+      "os dois punhos fechados erguidos na guarda diante do rosto, corpo de lado, joelhos flexionados",
+      "o punho da frente sai em um soco curto, o tronco gira acompanhando, o outro punho protege o queixo",
+      "o punho volta para a guarda, o peso desloca para a perna de trás, olhar fixo à frente",
+    ],
+  },
+  {
+    label: "👋 Aceno",
+    name: "aceno",
+    weight: 2,
+    fps: 10,
+    lift: 0,
+    poses: [
+      "um braço sobe até a altura da cabeça, a mão aberta, sorrindo",
+      "a mão aberta inclina para um lado, acenando, sorriso maior",
+      "a mão aberta inclina para o outro lado, ainda acenando",
+    ],
+  },
+  {
+    label: "💃 Rodopio",
+    name: "rodopio",
+    weight: 1,
+    fps: 12,
+    lift: 0.06,
+    poses: [
+      "o corpo começou a girar, está de três quartos, os braços acompanhando o giro",
+      "o corpo está de costas no meio do giro, os braços abertos",
+      "o corpo voltou a ficar de frente, os braços descendo, sorrindo",
+    ],
+  },
+];
+
 /** A finished animated character, kept so it can be applied to any character
  * later without generating (and paying for) it again. */
 interface SpriteModel {
@@ -101,6 +209,7 @@ interface SpriteModel {
   sprite_fps: number;
   hit_image_url: string | null;
   fire_image_url: string | null;
+  sprite_clips: Clip[];
   description: string | null;
   created_at: string;
 }
@@ -134,6 +243,8 @@ export default function SpriteStudio() {
   const [wantHit, setWantHit] = useState(true);
   const [wantFire, setWantFire] = useState(true);
   const [poses, setPoses] = useState<string[]>(DEFAULT_POSES);
+  // The three that make the biggest difference for the fewest images.
+  const [gestureNames, setGestureNames] = useState<string[]>(["piscada", "pulo", "lingua"]);
   const [columns, setColumns] = useState(0);
   const [fps, setFps] = useState(8);
   const [sheet, setSheet] = useState<Sheet | null>(null);
@@ -214,6 +325,20 @@ export default function SpriteStudio() {
     }
   };
 
+  /** Kept in preset order, so the rows of the sheet always come out the same
+   * way round no matter which order they were clicked in. */
+  const chosenGestures = GESTURE_PRESETS.filter((g) => gestureNames.includes(g.name));
+  const gestureFrames = chosenGestures.reduce((sum, g) => sum + g.poses.length, 0);
+
+  const toggleGesture = (name: string) =>
+    setGestureNames((list) =>
+      list.includes(name)
+        ? list.filter((n) => n !== name)
+        : list.length >= (status?.max_gestures ?? 6)
+          ? list
+          : [...list, name],
+    );
+
   const setPose = (index: number, value: string) =>
     setPoses((list) => list.map((p, i) => (i === index ? value : p)));
 
@@ -238,6 +363,7 @@ export default function SpriteStudio() {
         want_hit: wantHit,
         want_fire: wantFire,
         columns,
+        gestures: chosenGestures.map(({ label: _label, ...gesture }) => gesture),
       });
 
       // Generous ceiling: eight frames at ~20s each, plus room to spare.
@@ -292,6 +418,7 @@ export default function SpriteStudio() {
         sprite_fps: fps,
         hit_image_url: sheet.hit_url,
         fire_image_url: sheet.fire_url,
+        sprite_clips: sheet.clips,
         description,
         poses: poses.filter((pose) => pose.trim()),
       });
@@ -337,6 +464,9 @@ export default function SpriteStudio() {
               sprite_rows: sheet.rows,
               sprite_frame_count: sheet.frame_count,
               sprite_fps: fps,
+              // Without these the game has no idea which row is which, and
+              // plays the whole grid -- gestures included -- as one loop.
+              sprite_clips: sheet.clips,
             }
           : {}),
         ...(sheet.hit_url ? { hit_image_url: sheet.hit_url } : {}),
@@ -363,8 +493,9 @@ export default function SpriteStudio() {
       <p style={{ color: "#9a9ac0", fontSize: 13 }}>
         Descreva o personagem uma vez e liste as poses. A primeira pose é gerada do
         zero e as outras são <b>edições da mesma imagem</b> — é isso que mantém o
-        personagem igual de um quadro para o outro. No fim sai a folha montada,
-        pronta para virar animação.
+        personagem igual de um quadro para o outro. Marque também alguns
+        <b> gestos</b>: eles entram sozinhos entre as voltas da animação e são o que
+        separa um personagem vivo de um boneco repetindo os mesmos quadros.
       </p>
 
       <div
@@ -537,6 +668,35 @@ export default function SpriteStudio() {
           + Adicionar pose
         </button>
 
+        <label style={{ marginTop: 18 }}>
+          Gestos ({chosenGestures.length}
+          {status ? ` de no máximo ${status.max_gestures}` : ""})
+        </label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px", lineHeight: 1.6 }}>
+          O movimento base sozinho repete os mesmos quadros para sempre, e é isso que
+          faz o personagem parecer um robô. Cada gesto vira uma <b>linha própria</b> da
+          folha e o jogo o encaixa entre as voltas do movimento base, em intervalos
+          irregulares — uma piscada aqui, um pulinho ali. Cada quadro de gesto é uma
+          imagem cobrada à parte.
+        </p>
+        <div className="gift-filters" style={{ marginBottom: 8 }}>
+          {GESTURE_PRESETS.map((preset) => (
+            <button
+              key={preset.name}
+              className={`chip ${gestureNames.includes(preset.name) ? "on" : ""}`}
+              onClick={() => toggleGesture(preset.name)}
+              title={preset.poses.join(" → ")}
+            >
+              {preset.label} · {preset.poses.length}q
+            </button>
+          ))}
+        </div>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: 0 }}>
+          {gestureFrames > 0
+            ? `${gestureFrames} quadro(s) de gesto além das ${usablePoses} pose(s) do movimento base.`
+            : "Sem gestos o personagem só repete o movimento base."}
+        </p>
+
         <label style={{ marginTop: 14 }}>Imagens de ação</label>
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
           Desenhos avulsos que entram por um instante quando a ação acontece no jogo.
@@ -558,7 +718,19 @@ export default function SpriteStudio() {
         <div className="row" style={{ marginTop: 14 }}>
           <div>
             <label>Colunas na folha (0 = tudo numa linha)</label>
-            <input type="number" min={0} value={columns} onChange={(e) => setColumns(Number(e.target.value))} />
+            <input
+              type="number"
+              min={0}
+              value={columns}
+              disabled={chosenGestures.length > 0}
+              onChange={(e) => setColumns(Number(e.target.value))}
+            />
+            {chosenGestures.length > 0 && (
+              <p style={{ color: "#9a9ac0", fontSize: 12, margin: "4px 0 0", maxWidth: 260 }}>
+                Com gestos a folha é montada uma linha por movimento — é assim que o jogo
+                sabe onde cada um começa.
+              </p>
+            )}
           </div>
           <div>
             <label>Quadros por segundo</label>
@@ -604,6 +776,17 @@ export default function SpriteStudio() {
                 {sheet.columns} coluna(s) × {sheet.rows} linha(s) — {sheet.frame_count} quadros de{" "}
                 {sheet.frame_width}×{sheet.frame_height} px
               </p>
+              {sheet.clips.length > 0 && (
+                <ul style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 4px", paddingLeft: 18 }}>
+                  {sheet.clips.map((clip) => (
+                    <li key={clip.row}>
+                      linha {clip.row + 1}: <b>{clip.name}</b> — {clip.frames} quadro(s),{" "}
+                      {clip.kind === "gesture" ? "tocado de vez em quando" : "em loop"}
+                      {clip.lift ? `, sai do chão` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </>
           )}
 
@@ -709,6 +892,8 @@ export default function SpriteStudio() {
                   {model.sprite_columns > 0
                     ? `${model.sprite_frame_count} quadros · ${model.sprite_fps} FPS`
                     : "imagem parada"}
+                  {(model.sprite_clips?.length ?? 0) > 1 &&
+                    ` · ${model.sprite_clips.filter((c) => c.kind === "gesture").length} gesto(s)`}
                   {model.hit_image_url && " · dano"}
                   {model.fire_image_url && " · ataque"}
                 </div>

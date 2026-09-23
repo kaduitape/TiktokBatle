@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Callable
 
@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.services import secret_store
 from app.services.background_cutout import cut_out
 from app.services.image_providers import ImageProvider, ImageProviderError, build, catalog
-from app.services.sprite_sheet import SheetLayout, compose_sheet
+from app.services.sprite_sheet import SheetLayout, compose_rows
 
 logger = logging.getLogger("sprite_studio")
 
@@ -155,13 +155,59 @@ def _edit_instruction(instruction: str) -> str:
     )
 
 
+def _cycle_instruction(pose: str, index: int, total: int, looping: bool) -> str:
+    """A frame described as part of a movement instead of on its own.
+
+    Asking for four unrelated poses gets four unrelated drawings, and playing
+    them in order reads as a machine snapping between positions. Saying which
+    frame this is, and that the movement is continuous, gets in-between
+    positions -- a body caught mid-motion rather than posed.
+    """
+    where = f"frame {index} of {total}"
+    flow = (
+        "This is a continuous looping animation: the movement must flow "
+        "smoothly and the last frame has to lead straight back into the first, "
+        "with no jump."
+        if looping
+        else "This is a short one-off movement played from start to finish."
+    )
+    return _edit_instruction(
+        f"this is {where} of one continuous movement. {flow} "
+        f"The body is caught in the middle of moving, never standing still or "
+        f"posing for the camera. In this frame: {pose}"
+    )
+
+
+@dataclass
+class Gesture:
+    """A short one-off movement the character does between loops.
+
+    Each gesture becomes its own row of the sheet, so the game can play it once
+    and hand the character back to the base loop: a blink, a hop, a tongue out.
+    Without these a character repeats the same few frames forever, which is
+    what makes it read as a machine.
+    """
+
+    name: str
+    poses: list[str]
+    #: Fraction of its own height the character rises while this plays. The
+    #: sheet stands every frame on its feet, so a hop needs this to leave the
+    #: floor.
+    lift: float = 0.0
+    #: How often it is picked relative to the others.
+    weight: float = 1.0
+    fps: int = 0
+
+
 @dataclass
 class StudioResult:
-    """Everything one run produced: the looping sheet plus the reaction stills."""
+    """Everything one run produced: the sheet, its clips, the reaction stills."""
 
     sheet: SheetLayout | None
     hit: bytes | None
     fire: bytes | None
+    #: What each row of the sheet is, in the shape the game reads.
+    clips: list[dict] = field(default_factory=list)
 
 
 async def generate_artwork(
@@ -172,6 +218,7 @@ async def generate_artwork(
     want_fire: bool = False,
     columns: int = 0,
     size: str = DEFAULT_SIZE,
+    gestures: list[Gesture] | None = None,
     on_progress: Callable[[int, int, str], None] | None = None,
 ) -> StudioResult:
     """Produces a character's art in one run.
@@ -183,10 +230,27 @@ async def generate_artwork(
     words but can modify one it is given.
     """
     poses = [p.strip() for p in poses if p.strip()]
+    gestures = [
+        Gesture(
+            name=g.name.strip() or f"gesto{i}",
+            poses=[p.strip() for p in g.poses if p.strip()],
+            lift=g.lift,
+            weight=g.weight,
+            fps=g.fps,
+        )
+        for i, g in enumerate(gestures or [], start=1)
+    ]
+    gestures = [g for g in gestures if g.poses]
+
     if base_image is None and not description.strip():
         raise SpriteStudioError("Descreva o personagem ou envie uma imagem base.")
-    if not poses and not want_hit and not want_fire:
+    if not poses and not gestures and not want_hit and not want_fire:
         raise SpriteStudioError("Escolha pelo menos uma pose ou uma imagem de ação.")
+    if gestures and not poses:
+        raise SpriteStudioError(
+            "Os gestos são intercalados com o movimento base, então o movimento "
+            "base precisa de pelo menos uma pose."
+        )
 
     frames: list[Image.Image] = []
     provider_name = await resolve_provider()
@@ -201,6 +265,7 @@ async def generate_artwork(
     # of seconds, so the caller is told where we are rather than being left to
     # guess whether a long wait is progress or a hang.
     total = (len(poses) if base_image is None else len(poses) + 1)
+    total += sum(len(g.poses) for g in gestures)
     total += (1 if want_hit else 0) + (1 if want_fire else 0)
     done = 0
 
@@ -244,13 +309,39 @@ async def generate_artwork(
             frames.append(
                 _clean(
                     await provider.edit(
-                        client, reference_png, _edit_instruction(f"the pose becomes {pose}"), size
+                        client,
+                        reference_png,
+                        _cycle_instruction(pose, index, len(poses), looping=True),
+                        size,
                     ),
                     provider,
                 )
             )
             logger.info("sprite studio: quadro %d gerado", index)
             step(f"quadro {index}")
+
+        # Each gesture is its own row, so the game can play it once and go
+        # back to the base loop instead of folding it into the cycle.
+        gesture_rows: list[list[Image.Image]] = []
+        for gesture in gestures:
+            row: list[Image.Image] = []
+            for position, pose in enumerate(gesture.poses, start=1):
+                row.append(
+                    _clean(
+                        await provider.edit(
+                            client,
+                            reference_png,
+                            _cycle_instruction(
+                                pose, position, len(gesture.poses), looping=False
+                            ),
+                            size,
+                        ),
+                        provider,
+                    )
+                )
+                logger.info("sprite studio: %s %d/%d", gesture.name, position, len(gesture.poses))
+                step(f"{gesture.name} {position}/{len(gesture.poses)}")
+            gesture_rows.append(row)
 
         hit = fire = None
         if want_hit:
@@ -282,8 +373,63 @@ async def generate_artwork(
             logger.info("sprite studio: imagem de disparo gerada")
             step("pose de ataque")
 
-    sheet = compose_sheet(frames, columns=columns) if frames else None
-    return StudioResult(sheet=sheet, hit=hit, fire=fire)
+    return _lay_out(frames, gestures, gesture_rows, columns, hit, fire)
+
+
+def _lay_out(
+    base: list[Image.Image],
+    gestures: list[Gesture],
+    gesture_rows: list[list[Image.Image]],
+    columns: int,
+    hit: bytes | None,
+    fire: bytes | None,
+) -> StudioResult:
+    """Turns the finished frames into a sheet plus the clip list that reads it.
+
+    Without gestures the base row is wrapped at whatever width the admin asked
+    for, exactly as before. With gestures every clip owns a row, because a clip
+    is addressed as "row r, first n frames" and that only holds if the rows
+    line up.
+    """
+    if not base:
+        return StudioResult(sheet=None, hit=hit, fire=fire)
+
+    if not gesture_rows:
+        sheet = compose_rows([base]) if columns <= 0 else _wrapped(base, columns)
+        clips = [
+            {"name": "base", "row": 0, "frames": min(len(base), sheet.columns), "kind": "idle"}
+        ]
+        # A wrapped base row spans several rows: the whole grid is one loop,
+        # which is what a sheet without gestures always was. Saying so with no
+        # clips at all keeps the old behaviour in the game.
+        if sheet.rows > 1:
+            clips = []
+        return StudioResult(sheet=sheet, hit=hit, fire=fire, clips=clips)
+
+    sheet = compose_rows([base, *gesture_rows])
+    clips: list[dict] = [
+        {"name": "base", "row": 0, "frames": len(base), "kind": "idle", "weight": 1}
+    ]
+    for index, gesture in enumerate(gestures, start=1):
+        clip = {
+            "name": gesture.name,
+            "row": index,
+            "frames": len(gesture_rows[index - 1]),
+            "kind": "gesture",
+            "weight": gesture.weight,
+        }
+        if gesture.fps > 0:
+            clip["fps"] = gesture.fps
+        if gesture.lift > 0:
+            clip["lift"] = gesture.lift
+        clips.append(clip)
+    return StudioResult(sheet=sheet, hit=hit, fire=fire, clips=clips)
+
+
+def _wrapped(frames: list[Image.Image], columns: int) -> SheetLayout:
+    """The old layout: one long strip folded at `columns`."""
+    rows = [frames[i : i + columns] for i in range(0, len(frames), columns)]
+    return compose_rows(rows)
 
 
 async def verify_key(candidate: str | None = None, provider: str | None = None) -> str:

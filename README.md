@@ -157,6 +157,32 @@ no ar que existiam para dar vida a um desenho estático) — a folha já faz ess
 trabalho. Girar para mirar, o recuo do tiro e o tranco ao levar dano continuam
 valendo, porque são movimentos do personagem inteiro.
 
+### Movimento contínuo e gestos
+
+Uma folha com uma linha só repete os mesmos quadros, na mesma velocidade, para
+sempre — e o olho percebe isso em segundos. O jogo quebra esse padrão de três
+jeitos, que se somam:
+
+- **Gestos.** Cada linha além da primeira é um movimento avulso — uma piscada,
+  um pulinho, a língua de fora — que entra **entre** as voltas do movimento
+  base, em intervalos irregulares de 3 a 9 segundos, e devolve o personagem ao
+  loop quando acaba.
+- **Ritmo.** Cada volta roda alguns por cento mais rápida ou mais devagar que a
+  anterior, então a batida nunca "trava".
+- **Respiração.** Uma subida e descida lenta aplicada ao personagem inteiro,
+  independente dos quadros, então ele nunca fica completamente parado.
+
+Quem diz qual linha é qual movimento é o campo **Gestos** de *Gerar sprites*:
+ele monta a folha com **uma linha por movimento** e já grava a lista junto com
+o personagem. Uma folha **sem** essa lista continua funcionando como sempre — a
+grade inteira é um loop só —, então nada do que já estava cadastrado muda.
+
+Um gesto pode ainda **sair do chão** (o pulinho usa isso): como a folha apoia
+todos os quadros pelos pés, o salto desenhado sozinho nunca levantaria.
+
+Enquanto a arte de dano ou de ataque está na tela, a animação fica suspensa e o
+personagem volta ao loop assim que o instante passa.
+
 ### Trocando a arte com a live no ar
 
 A Arena é uma fonte de navegador do OBS que fica aberta o dia inteiro. Depois de
@@ -328,13 +354,14 @@ bomba são **três imagens**, todas com fundo transparente:
 
 | Imagem | O que é | Campo no painel |
 |---|---|---|
-| Folha da dança | 4 poses lado a lado numa imagem só | **Imagem principal** + colunas/FPS |
+| Folha da dança | a dança na primeira linha, um gesto por linha abaixo | **Imagem principal** + colunas/FPS |
 | Pose de dano | 1 desenho avulso | **Ao levar dano** |
 | Pose de ataque | 1 desenho avulso | **Ao atacar** |
 
-O jogo troca sozinho: a dança roda em loop o tempo todo, a pose de dano entra
-por ~0,3s quando o personagem leva um golpe, a de ataque por ~0,4s quando ele
-joga a bomba, e a dança volta em seguida.
+O jogo troca sozinho: a dança roda em loop o tempo todo — com o ritmo variando
+e um gesto entrando de vez em quando —, a pose de dano entra por ~0,3s quando o
+personagem leva um golpe, a de ataque por ~0,4s quando ele joga a bomba, e a
+dança volta em seguida.
 
 ### Gerando pelo painel (Admin → Gerar sprites)
 
@@ -343,9 +370,15 @@ joga a bomba, e a dança volta em seguida.
    pequenos, focinho rosa, corpo redondo e fofo`
 2. Clique no preset **🕺 Dançando** — ele preenche as 4 poses já escritas para
    fechar o loop (a última combina com a primeira).
-3. Marque **Ao levar dano** e **Ao atacar**.
-4. **Colunas na folha** = 4, **Quadros por segundo** = 8.
-5. Gerar. São 6 imagens, ~1 a 2 minutos.
+3. Em **Gestos**, deixe marcados **👀 Piscada**, **🦘 Pulinho** e
+   **😛 Língua de fora** (vêm marcados). Cada um vira uma linha própria da
+   folha e entra sozinho entre as voltas da dança — é o que separa uma vaca
+   viva de um boneco repetindo os mesmos quatro quadros.
+4. Marque **Ao levar dano** e **Ao atacar**.
+5. **Quadros por segundo** = 8. (Com gestos, *Colunas na folha* fica
+   desabilitado: a folha é montada com uma linha por movimento.)
+6. Gerar. São 14 imagens — 4 da dança, 8 dos gestos e as 2 de ação —, algo como
+   3 a 5 minutos.
 
 A primeira pose é gerada do zero; **todas as outras são uma edição dela**. É o
 que mantém a mesma vaca em todos os quadros — pedir seis desenhos soltos pelo

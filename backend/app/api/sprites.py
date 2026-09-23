@@ -26,6 +26,23 @@ logger = logging.getLogger("sprites")
 # Enough poses to read as an animation without burning credits by accident.
 MAX_POSES = 8
 
+# Gestures are extra rows, each its own handful of calls, so they are capped
+# separately -- a run with six gestures of four frames is twenty-four images.
+MAX_GESTURES = 6
+MAX_GESTURE_POSES = 6
+
+
+class GestureIn(BaseModel):
+    """One short movement the character does between loops of the base one."""
+
+    name: str = Field(min_length=1, max_length=40)
+    poses: list[str] = Field(default_factory=list, max_length=MAX_GESTURE_POSES)
+    #: Fraction of its own height the character rises while this plays, so a
+    #: hop actually leaves the floor -- the sheet stands every frame on its feet.
+    lift: float = Field(default=0.0, ge=0.0, le=1.0)
+    weight: float = Field(default=1.0, gt=0.0, le=10.0)
+    fps: int = Field(default=0, ge=0, le=60)
+
 
 class GenerateRequest(BaseModel):
     description: str = ""
@@ -38,6 +55,7 @@ class GenerateRequest(BaseModel):
     want_fire: bool = False
     columns: int = 0
     size: str = sprite_studio.DEFAULT_SIZE
+    gestures: list[GestureIn] = Field(default_factory=list, max_length=MAX_GESTURES)
 
 
 class GenerateOut(BaseModel):
@@ -49,6 +67,8 @@ class GenerateOut(BaseModel):
     frame_height: int = 0
     hit_url: str | None = None
     fire_url: str | None = None
+    #: What each row of the sheet is. Empty means the whole grid is one loop.
+    clips: list[dict] = Field(default_factory=list)
 
 
 class KeyIn(BaseModel):
@@ -103,6 +123,8 @@ async def studio_status(_: str = Depends(require_admin)):
         "model": _model_of(provider),
         "providers": providers,
         "max_poses": MAX_POSES,
+        "max_gestures": MAX_GESTURES,
+        "max_gesture_poses": MAX_GESTURE_POSES,
     }
 
 
@@ -257,6 +279,16 @@ async def _run_job(job: _Job, body: GenerateRequest, base_image: bytes | None) -
             want_fire=body.want_fire,
             columns=body.columns,
             size=body.size,
+            gestures=[
+                sprite_studio.Gesture(
+                    name=g.name,
+                    poses=list(g.poses),
+                    lift=g.lift,
+                    weight=g.weight,
+                    fps=g.fps,
+                )
+                for g in body.gestures
+            ],
             on_progress=progress,
         )
         job.result = _to_out(result).model_dump()
@@ -341,6 +373,11 @@ def _to_out(result) -> GenerateOut:
             out.columns = result.sheet.columns
             out.rows = result.sheet.rows
             out.frame_count = result.sheet.frame_count
+        out.clips = list(result.clips)
+        if out.columns == 0:
+            # Applied as a plain still: there is nothing to slice, so the clip
+            # list would only describe a grid the game is not going to read.
+            out.clips = []
     if result.hit:
         out.hit_url = _save_png(result.hit)
     if result.fire:
@@ -364,6 +401,7 @@ def _model_out(model: SpriteModel) -> SpriteModelOut:
         sprite_fps=model.sprite_fps,
         hit_image_url=model.hit_image_url,
         fire_image_url=model.fire_image_url,
+        sprite_clips=list(model.sprite_clips or []),
         description=model.description,
         poses=list(model.poses_json or []),
         created_at=model.created_at,
@@ -410,6 +448,7 @@ async def save_model(
         sprite_fps=body.sprite_fps,
         hit_image_url=body.hit_image_url,
         fire_image_url=body.fire_image_url,
+        sprite_clips=list(body.sprite_clips),
         description=body.description,
         poses_json=list(body.poses),
     )

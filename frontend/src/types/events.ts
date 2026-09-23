@@ -16,10 +16,24 @@ export interface CharacterPayload {
   sprite_rows: number;
   sprite_frame_count: number;
   sprite_fps: number;
+  /** What each row of the sheet is: the base loop plus the gestures played
+   * between its turns. Empty means the whole grid is one loop. */
+  sprite_clips?: SpriteClipPayload[];
   /** Reaction art, swapped in briefly when the character is hit or fires. */
   hit_image_url: string | null;
   fire_image_url: string | null;
   xp_max: number;
+}
+
+/** One named row of a sprite sheet. */
+export interface SpriteClipPayload {
+  name: string;
+  row: number;
+  frames: number;
+  kind?: "idle" | "gesture";
+  weight?: number;
+  fps?: number;
+  lift?: number;
 }
 
 export interface PlayerPayload {
