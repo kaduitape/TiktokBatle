@@ -5,14 +5,14 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import Battle, BattleSession, SimulatorProfile
+from app.models.models import Battle, BattleEvent, BattleSession, Player, SimulatorProfile
 from app.providers.simulation_provider import simulation_provider
 from app.schemas.schemas import (
     SimulateGiftRequest,
@@ -20,7 +20,12 @@ from app.schemas.schemas import (
     SimulatorProfileIn,
     SimulatorProfileOut,
 )
+from app.services.battle_manager import battle_manager
+from app.services.combo_manager import combo_manager
+from app.services.gift_streak_guard import gift_streak_guard
 from app.services.settings_service import settings_service
+from app.services.state_sync import build_state_sync
+from app.ws.connection_manager import connection_manager
 from app.services.simulator_autopilot import simulator_autopilot
 from app.services.gift_catalog_service import gift_catalog_service
 from app.services.gift_repository import gift_repository
@@ -229,49 +234,142 @@ async def simulate_stress(
     session_id: str,
     gift_keys: list[str],
     user_count: int = 100,
+    attacks_each: int = 2,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_admin),
 ):
-    """Section 46: SIMULAR LIVE LOTADA. Generates a burst of joins and
-    gifts through the normal pipeline so FPS/latency/queue depth can be
-    observed under load."""
+    """A packed LIVE: a burst of arrivals, each one attacking the rival boss.
+
+    Two rules make it behave like a real room rather than a counter:
+
+    * **Nobody joins twice.** A name already on the field is skipped, so
+      running this again tops the arena up instead of doubling it.
+    * **Only the eliminated come back.** Somebody knocked out returns and
+      picks a side again, which is exactly what a real viewer does.
+
+    Everybody who gets in then attacks the enemy boss with random gifts, so
+    the load being measured is the one the game actually carries.
+    """
     session = await db.get(BattleSession, session_id)
     battle = await db.get(Battle, session.battle_id) if session else None
     if session is None or battle is None:
         raise HTTPException(404, "sessão da batalha não encontrada")
-    tank = await settings_service.get(db, "tank_war") if battle and battle.mode == "tank_war" else {}
-    for i in range(user_count):
-        name = f"stress{i}_{random.randint(1, 999999)}"
+
+    tank = await settings_service.get(db, "tank_war") if battle.mode == "tank_war" else {}
+    keywords = [str(tank.get("team_a_keyword", "A")), str(tank.get("team_b_keyword", "B"))]
+
+    existing = (
+        (await db.execute(select(Player).where(Player.session_id == session.id))).scalars().all()
+    )
+    # A name still standing is already playing. One that was knocked out is
+    # free to come back; everybody else is a newcomer.
+    alive = {p.username for p in existing if not p.eliminated and (p.power or 0) > 0}
+    returning = [p.username for p in existing if p.username not in alive]
+
+    joined: list[str] = []
+    reused = 0
+    for _index in range(user_count):
+        if returning:
+            name = returning.pop()
+            reused += 1
+        else:
+            # Unique by construction, and unique against what is already
+            # there: a repeated name would be the same viewer, not a new one.
+            name = f"stress{uuid.uuid4().hex[:8]}"
+            if name in alive:
+                continue
+        alive.add(name)
+        joined.append(name)
+
+    for name in joined:
+        user_id = f"sim-{name}"
+        avatar = f"https://i.pravatar.cc/150?u={name}"
         await simulation_provider.simulate_join(
             session_id=session_id,
-            user_id=f"sim-{name}",
+            user_id=user_id,
             username=name,
             nickname=name,
-            avatar_url=f"https://i.pravatar.cc/150?u={name}",
+            avatar_url=avatar,
         )
-        if battle and battle.mode == "tank_war":
+        if battle.mode == "tank_war":
+            # Without a side, a tank war gift is ignored outright.
             await simulation_provider.simulate_comment(
                 session_id=session_id,
-                user_id=f"sim-{name}",
+                user_id=user_id,
                 username=name,
                 nickname=name,
-                avatar_url=f"https://i.pravatar.cc/150?u={name}",
-                text=random.choice([
-                    str(tank.get("team_a_keyword", "A")),
-                    str(tank.get("team_b_keyword", "B")),
-                ]),
+                avatar_url=avatar,
+                text=random.choice(keywords),
             )
-        if gift_keys:
+        for _shot in range(max(0, attacks_each)):
+            if not gift_keys:
+                break
             await simulation_provider.simulate_gift(
                 session_id=session_id,
-                user_id=f"sim-{name}",
+                user_id=user_id,
                 username=name,
                 gift_key=random.choice(gift_keys),
                 quantity=random.choice([1, 1, 1, 5, 10]),
                 nickname=name,
-                avatar_url=f"https://i.pravatar.cc/150?u={name}",
+                avatar_url=avatar,
             )
-    return {"ok": True, "spawned": user_count}
+
+    return {
+        "ok": True,
+        "spawned": len(joined),
+        "returning": reused,
+        "attacks": len(joined) * max(0, attacks_each) if gift_keys else 0,
+    }
+
+
+class ResetIn(BaseModel):
+    session_id: str
+    #: Also put the bosses' health back and clear the clock. Off leaves the
+    #: scoreboard where it was and only empties the arena of people.
+    restart_battle: bool = True
+
+
+@router.post("/reset")
+async def reset_session(
+    body: ResetIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    """Empty the arena.
+
+    A stress test leaves a hundred avatars behind, and the next one piles more
+    on top. This removes every player from the session -- and, unless told
+    otherwise, puts the battle back to its starting state -- then republishes
+    the state so an arena already open in OBS clears itself instead of needing
+    a reload.
+    """
+    session = await db.get(BattleSession, body.session_id)
+    battle = await db.get(Battle, session.battle_id) if session else None
+    if session is None or battle is None:
+        raise HTTPException(404, "sessão da batalha não encontrada")
+
+    # Any continuous simulation would immediately refill what we just emptied.
+    await simulator_autopilot.stop(body.session_id)
+
+    removed = (
+        await db.execute(select(func.count()).select_from(Player).where(Player.session_id == session.id))
+    ).scalar_one()
+    # Events reference players, so they go first.
+    await db.execute(delete(BattleEvent).where(BattleEvent.session_id == session.id))
+    await db.execute(delete(Player).where(Player.session_id == session.id))
+
+    if body.restart_battle:
+        await battle_manager.restart_session(db, session, battle)
+    await db.commit()
+
+    # Combo state is per (session, user); leaving it would let a name that
+    # comes back inherit the streak of the one just removed.
+    combo_manager.reset_session(session.id)
+    gift_streak_guard.reset(session.id)
+
+    state = await build_state_sync(session.id)
+    if state:
+        await connection_manager.broadcast(session.id, state)
+
+    return {"ok": True, "removed": int(removed), "restarted": body.restart_battle}
 
 
 def _profile_storage_error(exc: SQLAlchemyError) -> HTTPException:

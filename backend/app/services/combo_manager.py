@@ -36,5 +36,15 @@ class ComboManager:
     def reset(self, session_id: str, user_id: str) -> None:
         self._state.pop((session_id, user_id), None)
 
+    def reset_session(self, session_id: str) -> None:
+        """Forget every streak in a session.
+
+        Used when the arena is emptied: a name that comes back afterwards
+        would otherwise inherit the combo of the person just removed.
+        """
+        self._state = {
+            key: state for key, state in self._state.items() if key[0] != session_id
+        }
+
 
 combo_manager = ComboManager()

@@ -62,6 +62,8 @@ export default function Simulator() {
    * so a failure reported only there looks like a button that does
    * nothing. */
   const [profileNote, setProfileNote] = useState<{ bad: boolean; text: string } | null>(null);
+  /** How many gifts each simulated viewer throws at the rival boss. */
+  const [attacksEach, setAttacksEach] = useState(2);
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [profileName, setProfileName] = useState("");
   const [profileFile, setProfileFile] = useState<File | null>(null);
@@ -225,12 +227,30 @@ export default function Simulator() {
   const simulateStress = (count: number) => run(async () => {
     const target = await targetSession();
     if (!target) return;
-    await api.post(
-      `/api/simulator/stress?session_id=${target.id}&user_count=${count}`,
+    const result = await api.post<{ spawned: number; returning: number; attacks: number }>(
+      `/api/simulator/stress?session_id=${target.id}&user_count=${count}&attacks_each=${attacksEach}`,
       (allowed.length ? gifts.filter((gift) => allowed.includes(gift.gift_key)) : gifts).map((gift) => gift.gift_key),
     );
-    pushLog(`LIVE lotada em ${target.name}: ${count} usuários`);
+    pushLog(
+      `LIVE lotada em ${target.name}: ${result.spawned} entraram` +
+        (result.returning ? ` (${result.returning} voltaram após serem eliminados)` : "") +
+        ` · ${result.attacks} ataques ao chefão rival`,
+    );
     window.setTimeout(() => void loadActiveBattle(), 1500);
+  });
+
+  /** A stress test leaves its crowd behind, and the next one piles more on
+   * top. This empties the arena before starting over. */
+  const resetArena = () => run(async () => {
+    const target = await targetSession();
+    if (!target) return;
+    if (!window.confirm(`Tirar todo mundo da arena de "${target.name}" e recomeçar a batalha?`)) return;
+    const result = await api.post<{ removed: number }>("/api/simulator/reset", {
+      session_id: target.id,
+      restart_battle: true,
+    });
+    pushLog(`Arena de ${target.name} limpa: ${result.removed} perfis removidos, batalha reiniciada.`);
+    await loadActiveBattle();
   });
 
   const addProfile = async () => {
@@ -464,8 +484,32 @@ export default function Simulator() {
 
       <div className="card">
         <h3>Teste de estresse — LIVE lotada</h3>
-        <div className="row">
+        <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+          Cada um entra, escolhe um lado e ataca o chefão rival com presentes sorteados.
+          Ninguém entra duas vezes: quem já está em campo é pulado, e só volta quem foi
+          eliminado.
+        </p>
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <div>
+            <label>Ataques por pessoa</label>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={attacksEach}
+              onChange={(e) => setAttacksEach(Math.max(0, Math.min(20, Number(e.target.value))))}
+              style={{ width: 90 }}
+            />
+          </div>
+        </div>
+        <div className="row" style={{ marginTop: 10 }}>
           {[100, 250, 500, 1000].map((count) => <button key={count} className="secondary" onClick={() => simulateStress(count)} disabled={busy || !pick}>{count} usuários</button>)}
+        </div>
+        <div className="row" style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262638" }}>
+          <button onClick={resetArena} disabled={busy || !pick}>🧹 Limpar arena e reiniciar</button>
+          <span style={{ color: "#9a9ac0", fontSize: 12 }}>
+            Tira todos os perfis do jogo, devolve a vida dos chefões e para a simulação contínua.
+          </span>
         </div>
       </div>
 
