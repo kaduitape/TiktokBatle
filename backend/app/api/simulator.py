@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
@@ -273,9 +274,28 @@ async def simulate_stress(
     return {"ok": True, "spawned": user_count}
 
 
+def _profile_storage_error(exc: SQLAlchemyError) -> HTTPException:
+    """A missing simulator_profiles table reached the panel as a bare
+    "Internal Server Error", which says nothing about what to do. Name the
+    likely cause instead -- a migration that never ran."""
+    logger.exception("falha ao acessar simulator_profiles")
+    return HTTPException(
+        500,
+        "Não consegui ler ou gravar os perfis do simulador. Se o banco não recebeu a "
+        "migration 0013 (tabela simulator_profiles), esta tela não funciona: abra "
+        "/api/health para conferir quais tabelas estão faltando. Detalhe: "
+        f"{type(exc).__name__}.",
+    )
+
+
 @router.get("/profiles", response_model=list[SimulatorProfileOut])
 async def list_profiles(db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
-    return (await db.execute(select(SimulatorProfile).order_by(SimulatorProfile.created_at.desc()))).scalars().all()
+    try:
+        return (
+            await db.execute(select(SimulatorProfile).order_by(SimulatorProfile.created_at.desc()))
+        ).scalars().all()
+    except SQLAlchemyError as exc:
+        raise _profile_storage_error(exc) from exc
 
 
 @router.post("/profiles", response_model=SimulatorProfileOut)
@@ -286,8 +306,12 @@ async def create_profile(
 ):
     profile = SimulatorProfile(**body.model_dump())
     db.add(profile)
-    await db.commit()
-    await db.refresh(profile)
+    try:
+        await db.commit()
+        await db.refresh(profile)
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        raise _profile_storage_error(exc) from exc
     return profile
 
 

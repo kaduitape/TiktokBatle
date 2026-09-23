@@ -753,6 +753,30 @@ painel admin. `settings` é um KV genérico (hoje usado para o mixer de
 áudio (`audio_mixer`) e para o balanceamento dos modos PvP
 (`team_battle`) e tanque (`tank_war`)).
 
+### Quando o banco fica incompleto
+
+Duas revisões que recebem o mesmo número deixam um rastro difícil: o
+`alembic_version` afirma uma revisão que nunca chegou a rodar, o Alembic nunca
+mais tenta rodá-la, e o app sobe com uma tabela faltando. Na prática isso
+aparece como **uma tela só respondendo `Internal Server Error`**, sem pista.
+
+Duas defesas agora:
+
+- **No start**, o backend compara as tabelas dos modelos com as do banco.
+  Faltando alguma, ele grava o aviso no log **e cria a tabela a partir do
+  modelo** — seguro porque as revisões envolvidas só criavam tabelas, sem
+  dados para migrar. A tela volta a funcionar no próximo deploy, sem SQL na
+  mão.
+- **`GET /api/health`** responde o estado do schema, então dá para conferir
+  pelo navegador:
+
+```json
+{"status":"schema_incomplete",
+ "schema":{"revision":"0015","missing_tables":["simulator_profiles"],"ok":false}}
+```
+
+Com tudo em ordem vem `"status":"ok"` e `missing_tables` vazio.
+
 ### Migrations
 
 O schema é do Alembic (`backend/alembic/`), e o backend roda

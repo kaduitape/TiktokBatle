@@ -23,6 +23,7 @@ from app.api import (
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.migrations import run_migrations
+from app.core.schema_check import inspect_schema, repair_missing_tables
 from app.providers.simulation_provider import simulation_provider
 from app.providers.tiktok_provider import tiktok_provider
 from app.seed import run_seed
@@ -40,6 +41,12 @@ async def lifespan(app: FastAPI):
     # Schema is owned by Alembic: a fresh database gets built, an existing one
     # gets only the migrations it's missing.
     run_migrations()
+    # A revision-number collision once left a database claiming to be at a
+    # revision that had never run, which showed up only as one screen
+    # answering "Internal Server Error". Alembic cannot recover from that by
+    # itself -- it believes those revisions are done -- so the missing tables
+    # are created from the models and the whole thing is logged.
+    repair_missing_tables()
 
     if settings.admin_password == "changeme":
         logger.warning(
@@ -91,4 +98,11 @@ app.include_router(ws_routes.router)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    """Also reports whether the database has every table the code expects, so
+    a half-applied migration can be seen from a browser instead of guessed at
+    from a 500."""
+    schema = inspect_schema()
+    return {
+        "status": "ok" if schema["ok"] else "schema_incomplete",
+        "schema": schema,
+    }
