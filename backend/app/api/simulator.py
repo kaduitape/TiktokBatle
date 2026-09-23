@@ -1,4 +1,5 @@
 import os
+import logging
 import random
 import uuid
 
@@ -24,6 +25,7 @@ from app.services.gift_catalog_service import gift_catalog_service
 from app.services.gift_repository import gift_repository
 
 router = APIRouter(prefix="/api/simulator", tags=["simulator"])
+logger = logging.getLogger("simulator")
 
 _FAKE_USERNAMES = [
     "carlos", "ana", "joao", "maria", "pedro", "lucas", "julia", "bruno",
@@ -318,13 +320,26 @@ async def upload_simulator_image(file: UploadFile, _: str = Depends(require_admi
             f"Isto não parece uma imagem ({declared or 'tipo desconhecido'}). "
             "Envie um arquivo .png, .jpg, .webp ou .gif.",
         )
-    os.makedirs(settings.upload_dir, exist_ok=True)
     if ext not in _IMAGE_EXTENSIONS:
         ext = ".png"
     filename = f"{uuid.uuid4().hex}{ext}"
     path = os.path.join(settings.upload_dir, filename)
-    with open(path, "wb") as stored:
-        stored.write(await file.read())
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(400, "O arquivo chegou vazio. Tente escolher a imagem de novo.")
+    try:
+        os.makedirs(settings.upload_dir, exist_ok=True)
+        with open(path, "wb") as stored:
+            stored.write(payload)
+    except OSError as exc:
+        # A read-only or missing uploads volume produced a bare 500, which in
+        # the panel was indistinguishable from a button that does nothing.
+        logger.exception("não consegui gravar o upload em %s", path)
+        raise HTTPException(
+            500,
+            f"Não consegui gravar a imagem em {settings.upload_dir} ({exc.strerror or exc}). "
+            "Confira se o volume de uploads existe e tem permissão de escrita no servidor.",
+        ) from exc
     return {"url": f"/uploads/{filename}"}
 
 

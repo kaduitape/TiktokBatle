@@ -58,6 +58,10 @@ export default function Simulator() {
   const [busy, setBusy] = useState(false);
   const [allowed, setAllowed] = useState<string[]>([]);
   const [profiles, setProfiles] = useState<SimulatorProfile[]>([]);
+  /** Said next to the button. The log is a thousand pixels further down,
+   * so a failure reported only there looks like a button that does
+   * nothing. */
+  const [profileNote, setProfileNote] = useState<{ bad: boolean; text: string } | null>(null);
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [profileName, setProfileName] = useState("");
   const [profileFile, setProfileFile] = useState<File | null>(null);
@@ -229,21 +233,34 @@ export default function Simulator() {
     window.setTimeout(() => void loadActiveBattle(), 1500);
   });
 
-  const addProfile = () => run(async () => {
-    // The button used to sit disabled until a file was chosen, which from the
-    // other side of the screen is indistinguishable from a broken button.
-    if (!profileFile) throw new Error("Escolha a foto da pessoa em \"Foto do perfil\" antes de cadastrar.");
-    const uploaded = await api.upload("/api/simulator/upload", profileFile);
-    const profile = await api.post<SimulatorProfile>("/api/simulator/profiles", {
-      name: profileName.trim() || profileFile.name.replace(/\.[^/.]+$/, ""),
-      avatar_url: uploaded.url,
-    });
-    setProfiles((items) => [profile, ...items]);
-    setSelectedProfiles((ids) => [...ids, profile.id]);
-    setProfileFile(null);
-    setProfileName("");
-    pushLog(`Perfil ${profile.name} cadastrado no simulador.`);
-  });
+  const addProfile = async () => {
+    setProfileNote(null);
+    setBusy(true);
+    try {
+      // The button used to sit disabled until a file was chosen, which from
+      // the other side of the screen is indistinguishable from a broken one.
+      if (!profileFile) {
+        throw new Error('Escolha a foto da pessoa em "Foto do perfil" antes de cadastrar.');
+      }
+      const uploaded = await api.upload("/api/simulator/upload", profileFile);
+      const profile = await api.post<SimulatorProfile>("/api/simulator/profiles", {
+        name: profileName.trim() || profileFile.name.replace(/\.[^/.]+$/, ""),
+        avatar_url: uploaded.url,
+      });
+      setProfiles((items) => [profile, ...items]);
+      setSelectedProfiles((ids) => [...ids, profile.id]);
+      setProfileFile(null);
+      setProfileName("");
+      setProfileNote({ bad: false, text: `${profile.name} cadastrado.` });
+      pushLog(`Perfil ${profile.name} cadastrado no simulador.`);
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      setProfileNote({ bad: true, text });
+      pushLog(`⚠️ ${text}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const removeProfile = (profile: SimulatorProfile) => run(async () => {
     await api.del(`/api/simulator/profiles/${profile.id}`);
@@ -336,6 +353,18 @@ export default function Simulator() {
           <div style={{ flex: 1 }}><label>Foto do perfil</label><input type="file" accept="image/*" onChange={(event) => setProfileFile(event.target.files?.[0] || null)} /></div>
           <button onClick={addProfile} disabled={busy}>Cadastrar foto</button>
         </div>
+        {profileNote && (
+          <p
+            style={{
+              margin: "10px 0 0",
+              fontSize: 13,
+              color: profileNote.bad ? "#ff8080" : "#4ade80",
+            }}
+          >
+            {profileNote.bad ? "⚠️ " : "✅ "}
+            {profileNote.text}
+          </p>
+        )}
         {profiles.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
           {profiles.map((profile) => <div key={profile.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: 6, border: "1px solid #343450", borderRadius: 8 }}>
             <input type="checkbox" checked={selectedProfiles.includes(profile.id)} onChange={() => toggleProfile(profile.id)} title={`Usar ${profile.name}`} />
