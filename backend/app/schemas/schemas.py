@@ -1,7 +1,23 @@
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
+
+
+def _list_or_empty(value: Any) -> Any:
+    """Reads a NULL column as an empty list.
+
+    A JSON column added by a migration is NULL on every row that already
+    existed, and a list field refuses None -- which takes down the whole
+    endpoint, not just that field. That is how adding sprite_clips emptied the
+    character list: the rows were all still there, the response could not be
+    built. Nothing that means "no rows declared" should be able to do that.
+    """
+    return [] if value is None else value
+
+
+#: A JSON list column that may still be NULL on rows written before it existed.
+JsonList = Annotated[list[dict[str, Any]], BeforeValidator(_list_or_empty)]
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +74,7 @@ class CharacterIn(BaseModel):
     sprite_frame_count: int = 0
     sprite_fps: int = 10
     #: Rows of the sheet, named. See Character.sprite_clips.
-    sprite_clips: list[dict[str, Any]] = Field(default_factory=list)
+    sprite_clips: JsonList = Field(default_factory=list)
     hit_image_url: str | None = None
     fire_image_url: str | None = None
     xp_max: int = 100_000
@@ -212,7 +228,7 @@ class SpriteModelIn(BaseModel):
     hit_image_url: str | None = None
     fire_image_url: str | None = None
     #: Which row of the sheet is which movement. See Character.sprite_clips.
-    sprite_clips: list[dict[str, Any]] = Field(default_factory=list)
+    sprite_clips: JsonList = Field(default_factory=list)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
 
@@ -227,7 +243,7 @@ class SpriteModelOut(BaseModel):
     sprite_fps: int
     hit_image_url: str | None = None
     fire_image_url: str | None = None
-    sprite_clips: list[dict[str, Any]] = Field(default_factory=list)
+    sprite_clips: JsonList = Field(default_factory=list)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
     created_at: datetime
