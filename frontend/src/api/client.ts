@@ -73,7 +73,19 @@ export const api = {
       handleUnauthorized();
       throw new Error("401 not authenticated");
     }
-    if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+    if (!res.ok) {
+      // Same treatment `request` gives: the server explains why it refused
+      // the file ("envie uma imagem"), and a bare status number hides it.
+      const text = await res.text().catch(() => "");
+      let detail = text;
+      try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed?.detail === "string") detail = parsed.detail;
+      } catch {
+        /* not JSON -- keep the raw body */
+      }
+      throw new Error(detail || `${res.status} ${res.statusText}`);
+    }
     return res.json();
   },
 };

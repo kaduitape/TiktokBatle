@@ -230,7 +230,9 @@ export default function Simulator() {
   });
 
   const addProfile = () => run(async () => {
-    if (!profileFile) throw new Error("Escolha uma imagem de pessoa primeiro.");
+    // The button used to sit disabled until a file was chosen, which from the
+    // other side of the screen is indistinguishable from a broken button.
+    if (!profileFile) throw new Error("Escolha a foto da pessoa em \"Foto do perfil\" antes de cadastrar.");
     const uploaded = await api.upload("/api/simulator/upload", profileFile);
     const profile = await api.post<SimulatorProfile>("/api/simulator/profiles", {
       name: profileName.trim() || profileFile.name.replace(/\.[^/.]+$/, ""),
@@ -332,7 +334,7 @@ export default function Simulator() {
         <div className="row" style={{ alignItems: "flex-end" }}>
           <div style={{ flex: 1 }}><label>Nome</label><input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Ex.: Ana" /></div>
           <div style={{ flex: 1 }}><label>Foto do perfil</label><input type="file" accept="image/*" onChange={(event) => setProfileFile(event.target.files?.[0] || null)} /></div>
-          <button onClick={addProfile} disabled={busy || !profileFile}>Cadastrar foto</button>
+          <button onClick={addProfile} disabled={busy}>Cadastrar foto</button>
         </div>
         {profiles.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
           {profiles.map((profile) => <div key={profile.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: 6, border: "1px solid #343450", borderRadius: 8 }}>

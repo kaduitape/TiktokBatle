@@ -301,14 +301,25 @@ async def delete_profile(
     return {"ok": True}
 
 
+#: Extensions the panel accepts for a face or a backdrop.
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
 @router.post("/upload")
 async def upload_simulator_image(file: UploadFile, _: str = Depends(require_admin)):
     """Stores a simulator face or arena backdrop beside the other assets."""
-    if not (file.content_type or "").startswith("image/"):
-        raise HTTPException(415, "envie uma imagem")
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    declared = (file.content_type or "").lower()
+    # Some browsers label a perfectly good PNG as application/octet-stream, so
+    # the extension gets a say. A .txt is still refused by both.
+    if not declared.startswith("image/") and ext not in _IMAGE_EXTENSIONS:
+        raise HTTPException(
+            415,
+            f"Isto não parece uma imagem ({declared or 'tipo desconhecido'}). "
+            "Envie um arquivo .png, .jpg, .webp ou .gif.",
+        )
     os.makedirs(settings.upload_dir, exist_ok=True)
-    ext = os.path.splitext(file.filename or "")[1].lower() or ".png"
-    if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+    if ext not in _IMAGE_EXTENSIONS:
         ext = ".png"
     filename = f"{uuid.uuid4().hex}{ext}"
     path = os.path.join(settings.upload_dir, filename)

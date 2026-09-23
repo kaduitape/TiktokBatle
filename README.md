@@ -585,6 +585,23 @@ adicionados, atualizados e mantidos. É um atalho, não um requisito: a captura
 por evento funciona sozinha e continua valendo mesmo que a sincronização não
 esteja disponível.
 
+## Pessoas do simulador e simulação realista
+
+Em **Admin → Simulador**, *Pessoas do simulador* guarda fotos de teste no
+servidor: nome + foto, e as marcadas são sorteadas quando entram espectadores.
+A foto é obrigatória — sem ela o botão diz o que falta em vez de ficar
+desabilitado sem explicação.
+
+*Simulação contínua* faz esses perfis entrarem e atacarem em ritmo de LIVE,
+com pausas curtas. Ela emite pelo mesmo `SimulationProvider` de sempre, então
+a fila e o pipeline tratam um espectador simulado exatamente como um do
+TikTok — não existe animação paralela. Na Guerra de Tanques ela também manda o
+comentário A/B, senão o espectador entraria sem time.
+
+A simulação vive na memória: **parar, ou reiniciar o servidor, encerra na hora**
+qualquer atividade artificial, que é o comportamento seguro para um painel com
+a live no ar.
+
 ## Presentes por batalha
 
 Cada batalha pode aceitar só um conjunto de presentes. Em **Admin → Batalhas**,
