@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.models.models import SpriteModel
 from app.schemas.schemas import SpriteModelIn, SpriteModelOut
 from app.services import secret_store, sprite_studio
+from app.services.image_providers import ImageProviderError
 from app.services.sprite_studio import SpriteStudioError
 
 router = APIRouter(prefix="/api/sprites", tags=["sprites"])
@@ -51,8 +52,23 @@ class GenerateOut(BaseModel):
 
 
 class KeyIn(BaseModel):
+    """Saving a key. The key itself is the point, so it is required."""
+
     key: str = Field(min_length=8, max_length=400)
     # Which service the key belongs to. Omitted means the one in use.
+    provider: str | None = None
+
+
+class KeyTestIn(BaseModel):
+    """Testing a key, which has two legitimate shapes.
+
+    With a key: check one before saving it. Without: check the one already
+    saved. Reusing KeyIn here made the second form a 422 -- the panel's
+    "Testar" button on an empty field sent no key and was rejected before it
+    ever reached the provider.
+    """
+
+    key: str | None = Field(default=None, max_length=400)
     provider: str | None = None
 
 
@@ -110,7 +126,7 @@ async def choose_provider(
     to a previous one does not mean pasting its key again."""
     try:
         name = await sprite_studio.set_provider(db, body.provider)
-    except SpriteStudioError as exc:
+    except ImageProviderError as exc:
         raise HTTPException(400, str(exc)) from exc
     key, source = await sprite_studio.resolve_key(name)
     return {"provider": name, "configured": bool(key), "source": source}
@@ -154,15 +170,16 @@ async def delete_key(
 
 
 @router.post("/key/test")
-async def test_key(body: KeyIn | None = None, _: str = Depends(require_admin)):
+async def test_key(body: KeyTestIn | None = None, _: str = Depends(require_admin)):
     """Confirms a key works before anyone spends credits finding out it does
     not. Pass a key to check one before saving, or none to check the saved one."""
+    candidate = (body.key or "").strip() if body else ""
     try:
         message = await sprite_studio.verify_key(
-            body.key.strip() if body and body.key else None,
+            candidate or None,
             body.provider if body else None,
         )
-    except SpriteStudioError as exc:
+    except ImageProviderError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "message": message}
 
@@ -244,7 +261,7 @@ async def _run_job(job: _Job, body: GenerateRequest, base_image: bytes | None) -
         )
         job.result = _to_out(result).model_dump()
         job.status = "done"
-    except SpriteStudioError as exc:
+    except ImageProviderError as exc:
         # Written for the admin, so pass it through rather than collapsing it
         # into a generic failure.
         job.status, job.error = "error", str(exc)
