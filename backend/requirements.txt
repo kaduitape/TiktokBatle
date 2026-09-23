@@ -14,6 +14,9 @@ aiofiles==24.1.0
 # TikTokLive 7.x requires httpx >= 0.28.1.
 httpx==0.28.1
 Pillow==10.4.0
+# Used to cut a flat background out of generated art. It already arrives as
+# a transitive dependency, but the cutout depends on it directly.
+numpy==2.1.1
 # The production TikTok LIVE event client. Keep this pinned: TikTok's
 # Webcast protocol evolves and a deliberate upgrade/test is safer than an
 # unexpected image rebuild changing the event schema.

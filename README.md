@@ -354,6 +354,23 @@ texto devolve seis vacas diferentes.
 > Já tem a caricatura pronta? Envie o arquivo em **Carregar caricatura** e as
 > poses são geradas a partir dele, preservando o desenho.
 
+### Fundo transparente mesmo sem o serviço ter o recurso
+
+Só a OpenAI tem um botão de fundo transparente. O Gemini e a AIsa só podem ser
+pedidos no texto, e muitas vezes devolvem o personagem sobre um cartão branco —
+que na arena vira um retângulo branco atrás dele.
+
+O sistema recorta esse fundo sozinho, para qualquer provedor. O detalhe que
+importa é *qual* branco sai: uma vaca branca sobre fundo branco tem a mesma cor
+dentro e fora, e apagar todo pixel branco esvaziaria o bicho. Por isso o
+recorte **começa na borda da imagem e só avança por pixels vizinhos** — o
+branco que o personagem envolve nunca é alcançado, e fica.
+
+Ele se recusa a agir quando não tem certeza: arte que já veio com transparência
+de verdade, borda que nunca foi de uma cor só (um cenário, por exemplo), ou um
+recorte que apagaria quase tudo. Nesses casos a imagem volta como veio e a
+prévia mostra o fundo — aí vale gerar pela OpenAI.
+
 ### Salvando como modelo e reusando
 
 Gerar uma folha custa créditos e alguns minutos, então a arte pronta vale mais
@@ -435,6 +452,23 @@ python scripts/make_spritesheet.py quadro1.png quadro2.png quadro3.png quadro4.p
 Em **Admin → Personagens**: envie a folha em **Imagem**, ponha **colunas = 4**,
 **linhas = 1**, **FPS = 8**, e envie as duas poses avulsas nos campos de dano e
 de ataque. Em **Editor de Arena** ajuste tamanho e posição.
+
+## De que lado cada personagem fica
+
+A posição horizontal (`pos_x`) fica gravada no personagem, mas **quem decide a
+metade da arena é a batalha**: o mesmo personagem pode ser o Lado A de uma e o
+Lado B de outra. Se o `pos_x` dele cair na metade do adversário, a arena
+espelha para a metade certa.
+
+Isso existe porque dois personagens criados em sequência guardam o valor que o
+formulário trouxe por padrão — e antes os dois caíam exatamente no mesmo ponto
+à esquerda, um em cima do outro. Proteger contra um valor específico não
+resolvia: o padrão do formulário (0,25) e o de um modelo salvo (0,5) são
+números diferentes, e nenhum dos dois quer dizer "este personagem é da
+esquerda".
+
+Uma posição escolhida de propósito no **Editor de Arena** é respeitada: se você
+colocou o Lado B em 0,9, ele fica em 0,9.
 
 ## Altura livre no rodapé (o chat do TikTok)
 

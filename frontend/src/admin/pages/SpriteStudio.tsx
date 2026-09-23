@@ -390,10 +390,12 @@ export default function SpriteStudio() {
         </div>
 
         {current && !current.supports_transparency && (
-          <p style={{ color: "#e0a01b", fontSize: 12, margin: "0 0 10px" }}>
-            Este serviço não tem um botão de fundo transparente — ele é pedido no texto e
-            às vezes volta com fundo branco. Confira a prévia antes de aplicar; se vier com
-            fundo, gere pela OpenAI, que tem o recurso de verdade.
+          <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 10px" }}>
+            Este serviço não tem botão de fundo transparente, então costuma devolver o
+            personagem sobre um fundo liso. <strong>O sistema recorta esse fundo sozinho</strong>{" "}
+            — o recorte começa pela borda, então branco de dentro do personagem não some.
+            Se a arte vier sobre um cenário (não um fundo liso), aí o recorte não é feito e a
+            prévia mostra o fundo: nesse caso gere pela OpenAI, que tem o recurso de verdade.
           </p>
         )}
 

@@ -22,7 +22,7 @@ import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
 import { drawArenaOverlay } from "./arenaOverlay";
-import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, } from "./constants";
+import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, sideAwarePosX } from "./constants";
 
 function resolveUrl(url: string | null): string | null {
   if (!url) return null;
@@ -163,13 +163,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private characterPosition(meta: CharacterPayload, side: "A" | "B"): { x: number; y: number } {
-    // A newly registered character used to default to the exact centre of the
-    // arena. When both sides had that untouched value, the final sprite drawn
-    // covered the first one and made it look as if both sides had one image.
-    // Preserve positions chosen in the editor, but split untouched defaults.
-    const usesUntouchedDefault = meta.pos_x === 0.5 && meta.pos_y === 0.5;
+    // Which half a character fights on is the battle's decision, not the
+    // character's, so a stored position in the enemy's half is mirrored into
+    // its own. This used to guard only against one exact value (0.5/0.5) --
+    // which the character form never produces, since it defaults to 0.25 --
+    // so two characters created in a row both landed on the left, one on top
+    // of the other.
     return {
-      x: (usesUntouchedDefault ? (side === "A" ? 0.25 : 0.75) : meta.pos_x) * ARENA_WIDTH,
+      x: sideAwarePosX(meta.pos_x, side) * ARENA_WIDTH,
       y: meta.pos_y * ARENA_HEIGHT,
     };
   }

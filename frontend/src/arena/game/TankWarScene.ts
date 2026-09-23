@@ -30,7 +30,7 @@ import { RankingManager } from "./managers/RankingManager";
 import { XPManager } from "./managers/XPManager";
 import { EventSocket } from "./net/EventSocket";
 import { drawArenaOverlay } from "./arenaOverlay";
-import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, XP_BAR_Y } from "./constants";
+import { arenaLayout, ARENA_HEIGHT, ARENA_WIDTH, CEILING_Y, CENTER_X, sideAwarePosX, XP_BAR_Y } from "./constants";
 
 /* Read as functions, not constants: the reserved bottom strip is only known
  * once the scene has the admin setting, which is after this module loads. */
@@ -298,7 +298,9 @@ export default class TankWarScene extends Phaser.Scene {
   }
 
   private spawnGunner(side: "A" | "B", meta: CharacterPayload) {
-    const x = meta.pos_x * ARENA_WIDTH;
+    // The battle decides which half this character fights on, so a stored
+    // position in the enemy's half is mirrored rather than obeyed.
+    const x = sideAwarePosX(meta.pos_x, side) * ARENA_WIDTH;
     const y = meta.pos_y * ARENA_HEIGHT;
     preloadActionArt(this, meta, resolveAssetUrl);
     const facing: 1 | -1 = meta.flip_h ? -1 : 1;

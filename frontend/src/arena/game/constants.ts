@@ -41,3 +41,27 @@ export const SIDE_B_ZONE = { xMin: CENTER_X + 20, xMax: ARENA_WIDTH - 20 };
 export const XP_BAR_Y = 150;
 export const FEED_Y = ARENA_HEIGHT - 210;
 export const RANKING_Y = 360;
+
+/** Where a character stands horizontally, given the side it was cast as.
+ *
+ * pos_x is stored on the Character, but which half of the arena it belongs to
+ * is decided by the battle -- the same character can be Lado A in one battle
+ * and Lado B in another. So a character whose stored x sits in the enemy's
+ * half is mirrored into its own.
+ *
+ * This exists because two characters created one after the other both keep
+ * whatever the form defaulted to, and used to land exactly on top of each
+ * other on the left. Guarding against one particular default value did not
+ * help: the panel's default (0.25) and a saved model's (0.5) are different
+ * numbers, and neither is a statement that the character belongs on the left.
+ * Mirroring works whatever the number is.
+ */
+export function sideAwarePosX(posX: number | null | undefined, side: "A" | "B"): number {
+  const x = typeof posX === "number" && Number.isFinite(posX) ? posX : 0.5;
+
+  // Dead centre belongs to nobody, so each side takes its natural spot.
+  if (Math.abs(x - 0.5) < 0.02) return side === "A" ? 0.25 : 0.75;
+
+  const onEnemyHalf = side === "A" ? x > 0.5 : x < 0.5;
+  return onEnemyHalf ? 1 - x : x;
+}

@@ -21,6 +21,7 @@ from PIL import Image
 
 from app.core.config import settings
 from app.services import secret_store
+from app.services.background_cutout import cut_out
 from app.services.image_providers import ImageProvider, ImageProviderError, build, catalog
 from app.services.sprite_sheet import SheetLayout, compose_sheet
 
@@ -118,6 +119,28 @@ async def _require_key(provider: str) -> str:
     return key
 
 
+def _clean(image: Image.Image, provider: ImageProvider) -> Image.Image:
+    """Drop a flat background the service left behind.
+
+    Only OpenAI has a transparency switch; the others can only be asked in
+    words and often answer with the character on a white card, which the arena
+    shows as a white rectangle. The cutout starts from the border and spreads
+    only through connected pixels, so a white character keeps its own whites.
+
+    It runs for every provider, not just the ones without the flag: even a
+    service that has one sometimes returns an opaque frame, and a drawing that
+    already carries real transparency is left untouched.
+    """
+    try:
+        cleaned, changed = cut_out(image)
+    except Exception:  # noqa: BLE001 - a failed cutout must never lose the art
+        logger.exception("não consegui recortar o fundo; usando a imagem como veio")
+        return image
+    if changed:
+        logger.info("fundo plano removido (%s)", provider.label)
+    return cleaned
+
+
 def _as_png(image: Image.Image) -> bytes:
     buffer = BytesIO()
     image.save(buffer, format="PNG")
@@ -195,14 +218,20 @@ async def generate_artwork(
                 reference = Image.open(BytesIO(base_image)).convert("RGBA")
             except Exception as exc:  # noqa: BLE001 - anything unreadable is the same problem
                 raise SpriteStudioError("Não consegui ler a imagem base enviada.") from exc
-            frames.append(reference)
+            # An uploaded caricature can arrive on a white card too, and it
+            # becomes every other frame's reference -- so clean it first or the
+            # card is inherited by the whole sheet.
+            frames.append(_clean(reference, provider))
             pose_instructions = poses
             step("caricatura enviada")
         else:
-            first = await provider.generate(
-                client,
-                f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
-                size,
+            first = _clean(
+                await provider.generate(
+                    client,
+                    f"{description.strip()}. {STYLE_RULES}. Pose: {poses[0]}",
+                    size,
+                ),
+                provider,
             )
             frames.append(first)
             pose_instructions = poses[1:]
@@ -213,8 +242,11 @@ async def generate_artwork(
 
         for index, pose in enumerate(pose_instructions, start=len(frames) + 1):
             frames.append(
-                await provider.edit(
-                    client, reference_png, _edit_instruction(f"the pose becomes {pose}"), size
+                _clean(
+                    await provider.edit(
+                        client, reference_png, _edit_instruction(f"the pose becomes {pose}"), size
+                    ),
+                    provider,
                 )
             )
             logger.info("sprite studio: quadro %d gerado", index)
@@ -223,7 +255,7 @@ async def generate_artwork(
         hit = fire = None
         if want_hit:
             hit = _as_png(
-                await provider.edit(
+                _clean(await provider.edit(
                     client,
                     reference_png,
                     _edit_instruction(
@@ -231,13 +263,13 @@ async def generate_artwork(
                         "face twisted in pain, eyes squeezed shut, arms thrown up defensively"
                     ),
                     size,
-                )
+                ), provider)
             )
             logger.info("sprite studio: imagem de dano gerada")
             step("pose de dano")
         if want_fire:
             fire = _as_png(
-                await provider.edit(
+                _clean(await provider.edit(
                     client,
                     reference_png,
                     _edit_instruction(
@@ -245,7 +277,7 @@ async def generate_artwork(
                         "stretched out, leaning forward, determined shouting expression"
                     ),
                     size,
-                )
+                ), provider)
             )
             logger.info("sprite studio: imagem de disparo gerada")
             step("pose de ataque")
