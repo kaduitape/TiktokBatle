@@ -21,7 +21,6 @@ from PIL import Image
 
 from app.core.config import settings
 from app.services import secret_store
-from app.services.background_cutout import cut_out
 from app.services.image_providers import ImageProvider, ImageProviderError, build, catalog
 from app.services.sprite_sheet import SheetLayout, compose_rows
 
@@ -44,38 +43,30 @@ STYLE_RULES = (
 )
 
 
-def _style_rules(provider: ImageProvider, description: str = "") -> str:
-    """Ask for a background the selected service can actually deliver.
+def _style_rules(
+    provider: ImageProvider,
+    description: str = "",
+    adjustment_prompt: str = "",
+) -> str:
+    """Build the shared frame rules without altering the supplied PNG.
 
     A white card cannot be safely keyed when the character has white hair or
     clothes. Providers without an alpha switch therefore get a vivid chroma
     background that is deliberately forbidden in the subject; the local
     cutout can then remove even enclosed gaps without guessing at semantics.
     """
-    if provider.supports_transparency:
-        background = (
-            "Use a genuinely transparent RGBA background, including every gap "
-            "between arms, body, legs, hair and accessories; no matte color."
-        )
-    else:
-        description_lower = description.casefold()
-        pink_words = ("magenta", "pink", "rosa", "roxo", "purple", "violeta")
-        if any(word in description_lower for word in pink_words):
-            chroma_name, chroma_hex = "green", "#00FF00"
-        else:
-            # Magenta is a safer default for this project than green: team and
-            # country mascots frequently wear green, while exact neon magenta
-            # is rare and remains far from natural red/pink skin tones.
-            chroma_name, chroma_hex = "magenta", "#FF00FF"
-        background = (
-            f"Use one perfectly flat, solid chroma-key {chroma_name} background "
-            f"({chroma_hex}) from "
-            "edge to edge, visible through every gap between limbs and accessories. "
-            "No gradient, texture, halo or shadow on the background. Do not use the exact "
-            f"chroma color {chroma_hex} on the character. Never use white, grey or "
-            "checkerboard as background."
-        )
-    return f"{STYLE_RULES}. {background}"
+    background = (
+        "Keep the original canvas, background and alpha channel exactly as they are. "
+        "Do not add a chroma-key, purple, magenta or green background."
+    )
+    adjustment = adjustment_prompt.strip()
+    requested = (
+        " Apply these user corrections to every generated frame while preserving "
+        f"the locked character identity: {adjustment}."
+        if adjustment
+        else ""
+    )
+    return f"{STYLE_RULES}. {background}{requested}"
 
 
 class SpriteStudioError(ImageProviderError):
@@ -159,22 +150,17 @@ def _clean(image: Image.Image, provider: ImageProvider) -> Image.Image:
     """Drop a flat background the service left behind.
 
     Only OpenAI has a transparency switch; the others can only be asked in
-    words and often answer with the character on a white card, which the arena
-    shows as a white rectangle. The cutout starts from the border and spreads
-    only through connected pixels, so a white character keeps its own whites.
+    words and often answer with the character on a flat card. Saturated chroma
+    backgrounds can be removed through enclosed gaps; neutral backgrounds are
+    removed only from the border so white beard, clothing and eyes survive.
 
     It runs for every provider, not just the ones without the flag: even a
     service that has one sometimes returns an opaque frame, and a drawing that
     already carries real transparency is left untouched.
     """
-    try:
-        cleaned, changed = cut_out(image)
-    except Exception:  # noqa: BLE001 - a failed cutout must never lose the art
-        logger.exception("não consegui recortar o fundo; usando a imagem como veio")
-        return image
-    if changed:
-        logger.info("fundo plano removido (%s)", provider.label)
-    return cleaned
+    # Background removal used to turn chroma pixels into transparent pixels.
+    # PNGs are now deliberately used as received, including their alpha.
+    return image.convert("RGBA")
 
 
 def _as_png(image: Image.Image) -> bytes:
@@ -256,6 +242,7 @@ class StudioResult:
 async def generate_artwork(
     description: str,
     poses: list[str],
+    adjustment_prompt: str = "",
     base_image: bytes | None = None,
     want_hit: bool = False,
     want_fire: bool = False,
@@ -289,21 +276,11 @@ async def generate_artwork(
         raise SpriteStudioError("Descreva o personagem ou envie uma imagem base.")
     if not poses and not gestures and not want_hit and not want_fire:
         raise SpriteStudioError("Escolha pelo menos uma pose ou uma imagem de ação.")
-    # How many frames the base row will hold. An uploaded caricature is a frame
-    # of its own; without one, the first pose is drawn from the description.
-    base_frames = len(poses) + 1 if base_image is not None else max(1, len(poses))
-    if gestures and base_frames < 2:
-        raise SpriteStudioError(
-            "Com uma pose só o movimento base fica congelado: o personagem ficaria "
-            "parado entre um gesto e outro. Escreva pelo menos duas poses para o "
-            "movimento base, ou desmarque os gestos."
-        )
-
     frames: list[Image.Image] = []
     provider_name = await resolve_provider()
     key = await _require_key(provider_name)
     provider: ImageProvider = build(provider_name, key)
-    style_rules = _style_rules(provider, description)
+    style_rules = _style_rules(provider, description, adjustment_prompt)
     if size == DEFAULT_SIZE:
         # Each service accepts a different frame size; honour an explicit
         # choice but fall back to whatever this one actually takes.

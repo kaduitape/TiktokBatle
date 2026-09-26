@@ -64,6 +64,13 @@ export function readClips(meta: CharacterPayload): SpriteClip[] {
     }));
 }
 
+export interface CharacterAnimatorOptions {
+  /** Tank War leaves the character stopped between randomly chosen gestures. */
+  gesturesOnly?: boolean;
+  /** Absolute sheet frame used while a gestures-only character is waiting. */
+  idleFrame?: number;
+}
+
 /** Drives one character's sprite. Created per character, destroyed with it. */
 export class CharacterAnimator {
   private scene: Phaser.Scene;
@@ -80,6 +87,8 @@ export class CharacterAnimator {
   private stopped = false;
   /** A reaction (taking a hit, attacking) owns the sprite while it plays. */
   private suspended = false;
+  private gesturesOnly = false;
+  private idleFrame = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -87,6 +96,7 @@ export class CharacterAnimator {
     keyPrefix: string,
     clips: SpriteClip[],
     baseFps: number,
+    options: CharacterAnimatorOptions = {},
   ) {
     this.scene = scene;
     this.sprite = sprite;
@@ -94,12 +104,17 @@ export class CharacterAnimator {
     this.baseFps = Math.max(1, baseFps);
     this.idle = clips.find((c) => c.kind === "idle") ?? clips[0];
     this.gestures = clips.filter((c) => c.kind === "gesture");
+    this.gesturesOnly = options.gesturesOnly ?? false;
+    this.idleFrame = Math.max(0, options.idleFrame ?? 0);
   }
 
   start(): void {
     if (this.stopped) return;
-    this.playIdle();
-    this.startBreathing();
+    if (this.gesturesOnly) this.showStillFrame();
+    else {
+      this.playIdle();
+      this.startBreathing();
+    }
     this.scheduleGesture();
   }
 
@@ -115,7 +130,8 @@ export class CharacterAnimator {
   resume(): void {
     if (this.stopped) return;
     this.suspended = false;
-    this.playIdle();
+    if (this.gesturesOnly) this.showStillFrame();
+    else this.playIdle();
     this.scheduleGesture();
   }
 
@@ -138,6 +154,15 @@ export class CharacterAnimator {
     if (!this.scene.anims.exists(key)) return;
     this.sprite.play({ key, repeat: -1 }, true);
     this.driftTempo();
+  }
+
+  /** Tank War deliberately has no perpetual animation. The first frame of
+   * the idle row is a neutral waiting pose until a random gesture is picked. */
+  private showStillFrame(): void {
+    if (!this.sprite.active || !this.idle) return;
+    this.sprite.anims.stop();
+    this.sprite.setTexture(`${this.keyPrefix}__sheet`, this.idleFrame);
+    this.sprite.anims.timeScale = 1;
   }
 
   /** Nudge the playback rate so consecutive loops never match. */
@@ -239,7 +264,8 @@ export class CharacterAnimator {
     this.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
       // A reaction may have taken the sprite while the gesture ran.
       if (this.stopped || this.suspended || !this.sprite.active) return;
-      this.playIdle();
+      if (this.gesturesOnly) this.showStillFrame();
+      else this.playIdle();
       this.scheduleGesture();
     });
   }

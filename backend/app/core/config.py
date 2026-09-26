@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     hardcoded here -- this file only holds infra-level defaults."""
 
     app_name: str = "TikTok Battle Arena"
-    database_url: str = "postgresql+asyncpg://battle:battle@postgres:5432/battle"
+    database_url: str = "sqlite+aiosqlite:////app/data/battle.db"
     redis_url: str = "redis://redis:6379/0"
 
     # Public HTTPS address used by the live setup wizard when it generates the
@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     upload_dir: str = "/app/uploads"
+    # Panel-selected provider and pasted API keys live outside the versioned
+    # database. The database and uploads may safely travel through Git; this
+    # file must remain private on each server.
+    private_settings_file: str = "/app/private/settings.json"
 
     # Admin panel auth. Change these via env vars in any real deployment --
     # the defaults exist only so a fresh checkout boots without extra setup.
@@ -37,10 +41,9 @@ class Settings(BaseSettings):
     # explicitly for multi-instance or persistent-session deployments.
     secret_key: str = secrets.token_hex(32)
 
-    # Image generation for the sprite studio (Admin -> Gerar sprites). The key
-    # lives only in the environment: it is never written to the database and
-    # never sent back to the browser. Leave it unset and the studio simply
-    # reports itself as not configured -- everything else keeps working.
+    # Image generation for the sprite studio (Admin -> Gerar sprites). A key
+    # may come from the environment or the ignored private settings file; it
+    # is never written to the versioned database or returned to the browser.
     image_api_key: str = ""
     image_api_base: str = "https://api.openai.com/v1"
     image_model: str = "gpt-image-1"

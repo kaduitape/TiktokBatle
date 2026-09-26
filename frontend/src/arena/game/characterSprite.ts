@@ -166,7 +166,7 @@ function ensureClipAnimations(
   scene: Phaser.Scene,
   imageKey: string,
   meta: CharacterPayload,
-): { clips: SpriteClip[]; sheetKey: string } | null {
+): { clips: SpriteClip[]; sheetKey: string; columns: number } | null {
   const columns = Math.max(1, meta.sprite_columns ?? 0);
   const rows = Math.max(1, meta.sprite_rows ?? 1);
   const sheetKey = `${imageKey}__sheet`;
@@ -203,7 +203,7 @@ function ensureClipAnimations(
     });
   }
 
-  return { clips, sheetKey };
+  return { clips, sheetKey, columns };
 }
 
 /** Kept for the single-loop path the idle-pose bookkeeping still refers to. */
@@ -253,7 +253,8 @@ export function buildCharacterObject(
   imageKey: string,
   x: number,
   y: number,
-  meta: CharacterPayload
+  meta: CharacterPayload,
+  options: { gesturesOnly?: boolean } = {},
 ): Phaser.GameObjects.Image {
   if (!isAnimated(meta)) return scene.add.image(x, y, imageKey);
 
@@ -270,6 +271,12 @@ export function buildCharacterObject(
     imageKey,
     built.clips,
     Math.max(1, meta.sprite_fps ?? 10),
+    {
+      gesturesOnly: options.gesturesOnly,
+      idleFrame:
+        (built.clips.find((clip) => clip.kind === "idle")?.row ?? built.clips[0].row) *
+        built.columns,
+    },
   );
   animators.set(sprite, animator);
   sprite.once(Phaser.GameObjects.Events.DESTROY, () => animator.destroy());

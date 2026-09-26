@@ -6,7 +6,6 @@ interface ProviderInfo {
   id: string;
   label: string;
   default_size: string;
-  supports_transparency: boolean;
   configured: boolean;
   source: "panel" | "env" | null;
   masked: string | null;
@@ -246,6 +245,7 @@ export default function SpriteStudio() {
   const [status, setStatus] = useState<Status | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [description, setDescription] = useState("");
+  const [adjustmentPrompt, setAdjustmentPrompt] = useState("");
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
   const [modelName, setModelName] = useState("");
@@ -253,8 +253,10 @@ export default function SpriteStudio() {
   const [wantHit, setWantHit] = useState(true);
   const [wantFire, setWantFire] = useState(true);
   const [poses, setPoses] = useState<string[]>(DEFAULT_POSES);
+  const [tankGesturesOnly, setTankGesturesOnly] = useState(true);
   // The three that make the biggest difference for the fewest images.
   const [gestureNames, setGestureNames] = useState<string[]>(["piscada", "pulo", "lingua"]);
+  const [customGestures, setCustomGestures] = useState<Gesture[]>([]);
   const [columns, setColumns] = useState(0);
   const [fps, setFps] = useState(8);
   const [sheet, setSheet] = useState<Sheet | null>(null);
@@ -335,16 +337,61 @@ export default function SpriteStudio() {
     }
   };
 
+  const replaceSheet = async (file: File) => {
+    if (!sheet) return;
+    setBusy(true);
+    setError("");
+    try {
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+        image.onerror = () => reject(new Error("Não consegui ler o PNG escolhido."));
+        image.src = URL.createObjectURL(file);
+      });
+      if (
+        sheet.columns > 0 &&
+        (dimensions.width % sheet.columns !== 0 || dimensions.height % sheet.rows !== 0)
+      ) {
+        throw new Error(
+          `A imagem precisa dividir exatamente em ${sheet.columns} coluna(s) e ${sheet.rows} linha(s).`,
+        );
+      }
+      const { url } = await api.upload("/api/characters/upload", file);
+      setSheet((currentSheet) =>
+        currentSheet
+          ? {
+              ...currentSheet,
+              url,
+              frame_width:
+                currentSheet.columns > 0 ? dimensions.width / currentSheet.columns : dimensions.width,
+              frame_height:
+                currentSheet.rows > 0 ? dimensions.height / currentSheet.rows : dimensions.height,
+            }
+          : currentSheet,
+      );
+      setApplied("PNG substituído. Agora você pode salvar o modelo ou aplicá-lo ao personagem.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /** Kept in preset order, so the rows of the sheet always come out the same
    * way round no matter which order they were clicked in. */
-  const chosenGestures = GESTURE_PRESETS.filter((g) => gestureNames.includes(g.name));
+  const chosenGestures: Gesture[] = [
+    ...GESTURE_PRESETS.filter((g) => gestureNames.includes(g.name)).map(
+      ({ label: _label, ...gesture }) => gesture,
+    ),
+    ...customGestures.filter((gesture) => gesture.name.trim() && gesture.poses.some((pose) => pose.trim())),
+  ];
   const gestureFrames = chosenGestures.reduce((sum, g) => sum + g.poses.length, 0);
 
   const toggleGesture = (name: string) =>
     setGestureNames((list) =>
       list.includes(name)
         ? list.filter((n) => n !== name)
-        : list.length >= (status?.max_gestures ?? 6)
+        : list.length + customGestures.length >= (status?.max_gestures ?? 6)
           ? list
           : [...list, name],
     );
@@ -354,6 +401,25 @@ export default function SpriteStudio() {
 
   const addPose = () => setPoses((list) => [...list, ""]);
   const removePose = (index: number) => setPoses((list) => list.filter((_, i) => i !== index));
+
+  const addCustomGesture = () =>
+    setCustomGestures((list) => [
+      ...list,
+      {
+        name: `gesto_${list.length + 1}`,
+        poses: ["preparando o gesto", "executando o gesto", "voltando à pose parada"],
+        lift: 0,
+        weight: 1,
+        fps: 10,
+      },
+    ]);
+
+  const updateCustomGesture = (index: number, patch: Partial<Gesture>) =>
+    setCustomGestures((list) =>
+      list.map((gesture, gestureIndex) =>
+        gestureIndex === index ? { ...gesture, ...patch } : gesture,
+      ),
+    );
 
   /** Generation makes one call to the image provider per frame and runs well
    * past a minute. Waiting on a single request meant whatever proxy sits in
@@ -366,14 +432,20 @@ export default function SpriteStudio() {
     setSheet(null);
     setProgress("começando...");
     try {
+      const generationPoses = tankGesturesOnly
+        ? baseUrl
+          ? []
+          : poses.filter((pose) => pose.trim()).slice(0, 1)
+        : poses.filter((pose) => pose.trim());
       const started = await api.post<Job>("/api/sprites/generate", {
         description,
-        poses: poses.filter((p) => p.trim()),
+        adjustment_prompt: adjustmentPrompt,
+        poses: generationPoses,
         base_image_url: baseUrl,
         want_hit: wantHit,
         want_fire: wantFire,
         columns,
-        gestures: chosenGestures.map(({ label: _label, ...gesture }) => gesture),
+        gestures: chosenGestures,
       });
 
       // Generous ceiling: eight frames at ~20s each, plus room to spare.
@@ -503,9 +575,9 @@ export default function SpriteStudio() {
       <p style={{ color: "#9a9ac0", fontSize: 13 }}>
         Descreva o personagem uma vez e liste as poses. A primeira pose é gerada do
         zero e as outras são <b>edições da mesma imagem</b> — é isso que mantém o
-        personagem igual de um quadro para o outro. Marque também alguns
-        <b> gestos</b>: eles entram sozinhos entre as voltas da animação e são o que
-        separa um personagem vivo de um boneco repetindo os mesmos quadros.
+        personagem igual de um quadro para o outro. Na Guerra de Tanques ele fica
+        <b> parado entre os gestos</b>; cada gesto é acessado aleatoriamente, sem
+        repetir uma movimentação base em loop.
       </p>
 
       <div
@@ -529,15 +601,6 @@ export default function SpriteStudio() {
             </button>
           ))}
         </div>
-
-        {current && !current.supports_transparency && (
-          <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 10px" }}>
-            Este serviço não tem transparência real. Por isso o sistema agora pede um
-            <strong> fundo verde de recorte</strong> e o remove depois, inclusive nos vãos
-            entre braços, pernas e acessórios. Se o serviço devolver branco mesmo assim, o
-            recorte fica conservador para não apagar barba, roupa ou olhos claros.
-          </p>
-        )}
 
         <h3 style={{ marginTop: 0 }}>Chave de {current?.label ?? "imagem"}</h3>
         {status?.configured ? (
@@ -593,11 +656,11 @@ export default function SpriteStudio() {
           <p style={{ color: "#ff6b6b", fontSize: 13, marginTop: 10, whiteSpace: "pre-wrap" }}>{keyErr}</p>
         )}
         <p style={{ color: "#9a9ac0", fontSize: 12, marginTop: 10, lineHeight: 1.6 }}>
-          A chave é guardada no banco de dados deste servidor e nunca volta para o
-          navegador — o painel só mostra os quatro últimos caracteres. Como o sistema não
-          tem cofre de senhas, um backup do banco carrega a chave junto: se o servidor for
-          compartilhado, prefira a variável <code>{ENV_VAR[provider] ?? "BATTLE_IMAGE_API_KEY"}</code> no{" "}
-          <code>.env</code>. Uma chave colada aqui tem prioridade sobre a do <code>.env</code>.
+          A chave fica em um arquivo privado separado do banco e ignorado pelo Git; ela nunca
+          volta para o navegador — o painel só mostra os quatro últimos caracteres. Em
+          produção você também pode usar a variável{" "}
+          <code>{ENV_VAR[provider] ?? "BATTLE_IMAGE_API_KEY"}</code> no <code>.env</code>. Uma
+          chave colada aqui tem prioridade sobre a do <code>.env</code>.
         </p>
       </div>
 
@@ -606,10 +669,10 @@ export default function SpriteStudio() {
 
         <label>Caricatura pronta (opcional)</label>
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
-          Se você já tem o desenho, suba aqui: ele vira o <b>quadro 1</b> e serve de
+          Envie o PNG como ele está: ele vira o <b>quadro 1</b> e serve de
           referência para todas as outras imagens, então a semelhança é a do seu
-          desenho e não a que o modelo inventar. Sem imagem, o primeiro quadro é
-          gerado a partir da descrição abaixo.
+          desenho e não a que o modelo inventar. O sistema não remove nem troca o
+          fundo, e não cria fundo roxo/magenta.
         </p>
         <input type="file" accept="image/*" onChange={(e) => e.target.files && uploadBase(e.target.files[0])} />
         {baseUrl && (
@@ -635,12 +698,41 @@ export default function SpriteStudio() {
           style={{ width: "100%" }}
         />
 
+        <label style={{ marginTop: 14 }}>Prompt de ajuste da folha</label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
+          Correções escritas aqui valem para todos os quadros, inclusive gestos e
+          imagens de ação.
+        </p>
+        <textarea
+          rows={3}
+          maxLength={2000}
+          placeholder="Ex: preservar exatamente a barba e o chapéu; manter todos os quadros no mesmo tamanho; não alterar as cores da roupa"
+          value={adjustmentPrompt}
+          onChange={(e) => setAdjustmentPrompt(e.target.value)}
+          style={{ width: "100%" }}
+        />
+
+        <label style={{ marginTop: 14 }}>
+          <input
+            type="checkbox"
+            checked={tankGesturesOnly}
+            onChange={(e) => setTankGesturesOnly(e.target.checked)}
+          />{" "}
+          Guerra de Tanques: parado entre gestos
+        </label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "3px 0 8px" }}>
+          Gera apenas um quadro neutro para esperar e as linhas de gestos. Desmarque
+          somente se quiser uma animação base em loop para os outros modos.
+        </p>
+
         <label style={{ marginTop: 14 }}>
           Poses ({usablePoses}
           {status ? ` de no máximo ${status.max_poses}` : ""})
         </label>
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
-          A animação roda em loop, então a última pose tem que combinar com a primeira.
+          {tankGesturesOnly
+            ? "Na opção de tanque apenas a primeira pose é usada como quadro neutro."
+            : "A animação roda em loop, então a última pose tem que combinar com a primeira."}
         </p>
         <div className="gift-filters" style={{ marginBottom: 10 }}>
           <span style={{ color: "#9a9ac0", fontSize: 12 }}>Começar de um pronto:</span>
@@ -682,11 +774,9 @@ export default function SpriteStudio() {
           {status ? ` de no máximo ${status.max_gestures}` : ""})
         </label>
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px", lineHeight: 1.6 }}>
-          O movimento base sozinho repete os mesmos quadros para sempre, e é isso que
-          faz o personagem parecer um robô. Cada gesto vira uma <b>linha própria</b> da
-          folha e o jogo o encaixa entre as voltas do movimento base, em intervalos
-          irregulares — uma piscada aqui, um pulinho ali. Cada quadro de gesto é uma
-          imagem cobrada à parte.
+          Cada gesto vira uma <b>linha própria</b> da folha. Na Guerra de Tanques o jogo
+          sorteia uma dessas linhas em intervalos irregulares e depois volta ao quadro
+          parado. Cada quadro de gesto é uma imagem cobrada à parte.
         </p>
         <div className="gift-filters" style={{ marginBottom: 8 }}>
           {GESTURE_PRESETS.map((preset) => (
@@ -700,10 +790,120 @@ export default function SpriteStudio() {
             </button>
           ))}
         </div>
+        {customGestures.map((gesture, gestureIndex) => (
+          <div
+            key={`custom-${gestureIndex}`}
+            style={{ border: "1px solid #2f2f47", borderRadius: 8, padding: 10, marginTop: 10 }}
+          >
+            <div className="row">
+              <input
+                style={{ flex: 1 }}
+                value={gesture.name}
+                placeholder="nome_do_gesto"
+                onChange={(e) =>
+                  updateCustomGesture(gestureIndex, {
+                    name: e.target.value.replace(/[^a-zA-Z0-9_-]/g, "_"),
+                  })
+                }
+              />
+              <label>
+                FPS{" "}
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={gesture.fps}
+                  style={{ width: 72 }}
+                  onChange={(e) => updateCustomGesture(gestureIndex, { fps: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                frequência{" "}
+                <input
+                  type="number"
+                  min={0.1}
+                  max={10}
+                  step={0.1}
+                  value={gesture.weight}
+                  style={{ width: 72 }}
+                  onChange={(e) =>
+                    updateCustomGesture(gestureIndex, { weight: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                salto{" "}
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={gesture.lift}
+                  style={{ width: 72 }}
+                  onChange={(e) => updateCustomGesture(gestureIndex, { lift: Number(e.target.value) })}
+                />
+              </label>
+              <button
+                className="secondary"
+                onClick={() =>
+                  setCustomGestures((list) => list.filter((_, index) => index !== gestureIndex))
+                }
+              >
+                Excluir gesto
+              </button>
+            </div>
+            {gesture.poses.map((pose, poseIndex) => (
+              <div className="row" key={poseIndex} style={{ marginTop: 6 }}>
+                <span className="pill">{poseIndex + 1}</span>
+                <input
+                  style={{ flex: 1 }}
+                  value={pose}
+                  placeholder="descreva este quadro do gesto"
+                  onChange={(e) =>
+                    updateCustomGesture(gestureIndex, {
+                      poses: gesture.poses.map((item, index) =>
+                        index === poseIndex ? e.target.value : item,
+                      ),
+                    })
+                  }
+                />
+                <button
+                  className="secondary"
+                  disabled={gesture.poses.length <= 1}
+                  onClick={() =>
+                    updateCustomGesture(gestureIndex, {
+                      poses: gesture.poses.filter((_, index) => index !== poseIndex),
+                    })
+                  }
+                >
+                  Remover
+                </button>
+              </div>
+            ))}
+            <button
+              className="secondary"
+              style={{ marginTop: 8 }}
+              disabled={gesture.poses.length >= (status?.max_gesture_poses ?? 6)}
+              onClick={() =>
+                updateCustomGesture(gestureIndex, { poses: [...gesture.poses, ""] })
+              }
+            >
+              + Quadro do gesto
+            </button>
+          </div>
+        ))}
+        <button
+          className="secondary"
+          style={{ marginTop: 10 }}
+          disabled={chosenGestures.length >= (status?.max_gestures ?? 6)}
+          onClick={addCustomGesture}
+        >
+          + Criar gesto personalizado
+        </button>
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: 0 }}>
           {gestureFrames > 0
-            ? `${gestureFrames} quadro(s) de gesto além das ${usablePoses} pose(s) do movimento base.`
-            : "Sem gestos o personagem só repete o movimento base."}
+            ? `${gestureFrames} quadro(s) de gesto além do quadro parado.`
+            : "Sem gestos o personagem permanece parado na Guerra de Tanques."}
         </p>
 
         <label style={{ marginTop: 14 }}>Imagens de ação</label>
@@ -721,7 +921,7 @@ export default function SpriteStudio() {
         </label>
         <p style={{ color: "#9a9ac0", fontSize: 12, margin: "6px 0 0" }}>
           As duas entram sozinhas no jogo: a de dano quando o personagem leva um golpe, a de
-          ataque quando ele joga a bomba. Passado o instante, a dança volta a rodar.
+          ataque quando ele joga a bomba. Passado o instante, ele volta ao quadro parado.
         </p>
 
         <div className="row" style={{ marginTop: 14 }}>
@@ -863,11 +1063,33 @@ export default function SpriteStudio() {
               Aplicar
             </button>
             {sheet.url && (
-              <a className="secondary" href={`${API_BASE}${sheet.url}`} target="_blank" rel="noreferrer">
+              <a className="secondary" href={`${API_BASE}${sheet.url}`} download>
                 Baixar PNG
               </a>
             )}
+            {sheet.url && (
+              <label className="secondary" style={{ cursor: busy ? "default" : "pointer" }}>
+                Substituir pelo PNG editado
+                <input
+                  type="file"
+                  accept="image/png"
+                  disabled={busy}
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void replaceSheet(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
           </div>
+          {sheet.url && (
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "6px 0 0" }}>
+              Você pode baixar, corrigir o PNG em um editor e enviá-lo de volta. Mantenha a
+              mesma grade de {sheet.columns} coluna(s) × {sheet.rows} linha(s).
+            </p>
+          )}
           {applied && <p style={{ color: "#4ade80", fontSize: 13, marginTop: 10 }}>{applied}</p>}
         </div>
       )}

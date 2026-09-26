@@ -1,19 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-battle}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}
-      POSTGRES_DB: ${POSTGRES_DB:-battle}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -22,7 +7,7 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
-      BATTLE_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-battle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-battle}
+      BATTLE_DATABASE_URL: sqlite+aiosqlite:////app/data/battle.db
       BATTLE_REDIS_URL: redis://redis:6379/0
       BATTLE_CORS_ORIGINS: ${BATTLE_CORS_ORIGINS:-["http://localhost","http://127.0.0.1"]}
       BATTLE_PUBLIC_URL: ${BATTLE_PUBLIC_URL:-}
@@ -36,12 +21,15 @@ services:
       BATTLE_IMAGE_API_KEY: ${BATTLE_IMAGE_API_KEY:-}
       BATTLE_IMAGE_MODEL: ${BATTLE_IMAGE_MODEL:-gpt-image-1}
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_started
     volumes:
-      - uploads:/app/uploads
+      # Banco e imagens são arquivos do projeto: um git push leva também os
+      # personagens, modelos, batalhas e uploads já cadastrados.
+      - ./backend/data:/app/data
+      - ./backend/uploads:/app/uploads
+      # Chaves coladas no painel ficam persistentes, mas fora do Git.
+      - ./backend/private:/app/private
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
@@ -73,7 +61,3 @@ services:
       # Keep the fallback HTTP port private. In production Traefik reaches
       # this container on its Docker network and is the only public gateway.
       - "${HTTP_BIND_ADDRESS:-127.0.0.1}:${HTTP_PORT:-8080}:80"
-
-volumes:
-  postgres_data:
-  uploads:

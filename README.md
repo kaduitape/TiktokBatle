@@ -680,7 +680,7 @@ Os achados vêm em três níveis: **alto** (quebra a experiência), **médio**
 
 ## Stack
 
-- **Backend**: Python 3.12 + FastAPI + SQLAlchemy (async) + PostgreSQL + Redis (reservado para filas/pub-sub multi-processo)
+- **Backend**: Python 3.12 + FastAPI + SQLAlchemy (async) + SQLite + Redis (reservado para filas/pub-sub multi-processo)
 - **Game**: React + Phaser 3 (engine) com o plugin de física Matter.js embutido no Phaser
 - **Tempo real**: WebSocket nativo (`/ws/arena/{session_id}`)
 - **Admin**: React (mesma SPA, rotas `/admin/*`)
@@ -696,6 +696,12 @@ docker compose up --build -d
 O frontend é o único serviço exposto: http://localhost:8080 (ou a porta definida
 em `HTTP_PORT`). Ele encaminha `/api`, `/uploads` e `/ws` internamente para o
 backend — banco, Redis e API não ficam públicos.
+
+O estado persistente fica no próprio repositório: `backend/data/battle.db`
+guarda os cadastros e `backend/uploads/` guarda as imagens. Ambos são
+versionados, portanto um `git add/commit/push` leva também o conteúdo já
+cadastrado. Chaves de APIs ficam separadas em `backend/private/settings.json`
+e continuam ignoradas pelo Git.
 
 - Documentação da API: http://localhost:8080/docs
 - Painel admin: http://localhost:8080/#/admin
@@ -729,7 +735,7 @@ pelo Git e nunca deve ser enviado ao repositório.
 # backend
 cd backend
 pip install -r requirements.txt
-export BATTLE_DATABASE_URL="sqlite+aiosqlite:///./dev.db"   # ou aponte para um Postgres
+export BATTLE_DATABASE_URL="sqlite+aiosqlite:///./dev.db"
 uvicorn app.main:app --reload
 
 # frontend

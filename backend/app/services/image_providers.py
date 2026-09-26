@@ -121,7 +121,7 @@ class ImageProvider(ABC):
 
 
 # ---------------------------------------------------------------------------
-# OpenAI (gpt-image-1): a real transparency flag and a multipart edit endpoint
+# OpenAI (gpt-image-1) and a multipart edit endpoint
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,6 @@ class OpenAIImageProvider(ImageProvider):
                 "model": settings.image_model,
                 "prompt": prompt,
                 "size": size,
-                "background": "transparent",
                 "output_format": "png",
                 "n": 1,
             },
@@ -164,7 +163,6 @@ class OpenAIImageProvider(ImageProvider):
                 "model": settings.image_model,
                 "prompt": instruction,
                 "size": size,
-                "background": "transparent",
                 "n": "1",
             },
             files={"image": ("base.png", reference_png, "image/png")},

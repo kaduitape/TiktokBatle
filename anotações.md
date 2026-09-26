@@ -18,3 +18,11 @@ Coloque uma legenda com os poderes abaixo dos presentes local discreto;
 7) - Que eu possa escolher um numero de participantes menor que 100;
 7) - Aumente o Tamanho da Legenda;
 8) - E o Botão analise da arena que eu possa melhorar o jogo e alterar para seguir as diretrizes e não ser punido;
+
+
+
+
+Em guerra de tanques vamos tirar a movimentação em loop, apenas uma opção criar novos padrões de gestos, que vão acessando aleatoriamente;
+Uma area para colocar prompt para ajustar a sprint;
+Uma opção para eu baixar o sprit gerado e substitui-lo.
+Altere o banco para sqllite, e sempre quando eu enviar para o git ele enviar tudo, até oque ja foi cadastrado.

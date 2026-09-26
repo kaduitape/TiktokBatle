@@ -1,7 +1,7 @@
 # Colocando a Battle Arena em produção
 
 Este guia publica a aplicação em `https://arena.navit.com.br` através do
-Traefik que já existe na VPS. A aplicação não abre PostgreSQL, Redis ou o
+Traefik que já existe na VPS. A aplicação não expõe o banco SQLite, Redis ou o
 backend para a internet. O Nginx interno encaminha `/api`, `/uploads` e `/ws`
 ao backend.
 
@@ -81,8 +81,9 @@ Para acompanhar a conexão do TikTok durante o teste:
 docker compose -f docker-compose.yml -f docker-compose.hostinger.yml logs -f backend
 ```
 
-Não rode `docker compose down -v`: a opção `-v` apaga os volumes do banco e
-dos uploads.
+O banco e os uploads são pastas bind do projeto (`backend/data` e
+`backend/uploads`), não volumes anônimos. Inclua suas alterações no commit
+antes do deploy; as chaves privadas continuam fora do Git em `backend/private`.
 
 ## 4. Primeira LIVE no TikTok
 

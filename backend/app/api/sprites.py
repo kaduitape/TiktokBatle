@@ -46,6 +46,7 @@ class GestureIn(BaseModel):
 
 class GenerateRequest(BaseModel):
     description: str = ""
+    adjustment_prompt: str = Field(default="", max_length=2000)
     poses: list[str] = Field(default_factory=list, max_length=MAX_POSES)
     # An /uploads path for a caricature the admin already has. When present it
     # becomes the character's neutral frame and the reference for every edit,
@@ -273,6 +274,7 @@ async def _run_job(job: _Job, body: GenerateRequest, base_image: bytes | None) -
     try:
         result = await sprite_studio.generate_artwork(
             description=body.description,
+            adjustment_prompt=body.adjustment_prompt,
             poses=body.poses,
             base_image=base_image,
             want_hit=body.want_hit,

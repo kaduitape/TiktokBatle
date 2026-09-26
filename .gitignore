@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 venv/
 *.db
+!backend/data/battle.db
 
 node_modules/
 dist/
@@ -10,6 +11,7 @@ dist/
 
 .env
 .env.local
+backend/private/*.json
 
 .DS_Store
 *.log

@@ -367,7 +367,9 @@ export default class TankWarScene extends Phaser.Scene {
   }
 
   private buildGunnerSprite(key: string, x: number, y: number, meta: CharacterPayload): Phaser.GameObjects.Image {
-    const img = buildCharacterObject(this, key, x, y, meta).setDepth(10);
+    // Tank War characters wait on a still frame. Only their gesture rows play,
+    // one at a time and in random order, instead of looping forever.
+    const img = buildCharacterObject(this, key, x, y, meta, { gesturesOnly: true }).setDepth(10);
     rememberIdlePose(img, meta, key, GUNNER_TARGET_HEIGHT * meta.scale);
     if (meta.flip_h) img.setFlipX(true);
     if (meta.glow) {
