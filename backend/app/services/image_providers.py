@@ -45,11 +45,6 @@ class ImageProvider(ABC):
     #: Frame size used when the admin has not chosen one. Providers disagree
     #: about what they accept, so each one names its own.
     default_size: str = "1024x1536"
-    #: True when the service has a real transparency switch. The ones without
-    #: it can only be asked nicely in the prompt, and often answer with a
-    #: white rectangle -- which the panel warns about rather than hiding.
-    supports_transparency: bool = False
-
     def __init__(self, key: str) -> None:
         self.key = key
 
@@ -128,7 +123,6 @@ class ImageProvider(ABC):
 class OpenAIImageProvider(ImageProvider):
     label = "OpenAI (gpt-image-1)"
     default_size = "1024x1536"
-    supports_transparency = True
 
     def open_client(self) -> httpx.AsyncClient:
         return self._client(settings.image_api_base, {"Authorization": f"Bearer {self.key}"})
@@ -195,7 +189,6 @@ class GeminiImageProvider(ImageProvider):
 
     label = "Google Gemini (gemini-2.5-flash-image)"
     default_size = "1024x1536"
-    supports_transparency = False
 
     def open_client(self) -> httpx.AsyncClient:
         # The key goes in a header rather than the query string so it does not
@@ -284,7 +277,6 @@ class AisaImageProvider(ImageProvider):
     label = "AIsa (Seedream)"
     # 1600x2400 = 3,840,000 px, just over the upstream minimum of 3,686,400.
     default_size = "1600x2400"
-    supports_transparency = False
 
     MIN_PIXELS = 3_686_400
 
@@ -404,7 +396,6 @@ def catalog() -> list[dict]:
             "id": name,
             "label": cls.label,
             "default_size": cls.default_size,
-            "supports_transparency": cls.supports_transparency,
         }
         for name, cls in PROVIDERS.items()
     ]

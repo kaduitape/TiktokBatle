@@ -119,6 +119,33 @@ class SpriteModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class GesturePreset(Base):
+    """A gesture the admin wrote, kept so it never has to be typed twice.
+
+    The built-in gestures (a blink, a hop, a tongue out) live in the panel as
+    a fixed list. One written by hand used to live only in the form: it was
+    spent the moment the sheet was generated, and rebuilding the same idea for
+    the next character meant retyping every pose. Saved here it becomes one
+    more chip alongside the built-in ones.
+    """
+
+    __tablename__ = "gesture_presets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_id)
+    #: The clip name the sheet will carry, so it also identifies the row.
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    #: What the admin sees on the chip. Free text, accents and all.
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    #: One entry per frame, in order.
+    poses_json: Mapped[list] = mapped_column(JSON, default=list)
+    fps: Mapped[int] = mapped_column(Integer, default=0)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+    #: Fraction of its own height the character rises while this plays.
+    lift: Mapped[float] = mapped_column(Float, default=0.0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AppSecret(Base):
     """Credentials pasted into the admin panel.
 

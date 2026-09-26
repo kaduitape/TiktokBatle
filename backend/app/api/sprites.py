@@ -14,8 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_admin
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import SpriteModel
-from app.schemas.schemas import SpriteModelIn, SpriteModelOut
+from app.models.models import GesturePreset, SpriteModel
+from app.schemas.schemas import (
+    GesturePresetIn,
+    GesturePresetOut,
+    SpriteModelIn,
+    SpriteModelOut,
+)
 from app.services import secret_store, sprite_studio
 from app.services.image_providers import ImageProviderError
 from app.services.sprite_studio import SpriteStudioError
@@ -458,6 +463,120 @@ async def save_model(
     await db.commit()
     await db.refresh(model)
     return _model_out(model)
+
+
+class SheetSwapIn(BaseModel):
+    """A sheet redrawn by hand, put back in place of the generated one.
+
+    Only the art and how it is sliced can change. The clip list stays as it
+    was, because the point of editing the PNG outside is to touch up the
+    drawing -- the rows still mean what they meant.
+    """
+
+    image_url: str
+    sprite_columns: int = Field(ge=0, le=64)
+    sprite_rows: int = Field(ge=1, le=64)
+    sprite_frame_count: int = Field(default=0, ge=0)
+
+
+@router.put("/models/{model_id}/sheet", response_model=SpriteModelOut)
+async def replace_model_sheet(
+    model_id: str,
+    body: SheetSwapIn,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    """Swaps a saved model's sheet for an edited one.
+
+    Characters already built from the model keep pointing at their own file,
+    so this changes the model only -- applying it again is what carries the
+    new drawing over to a character.
+    """
+    model = await db.get(SpriteModel, model_id)
+    if model is None:
+        raise HTTPException(404, "modelo não encontrado")
+    # The file has to be one of ours: the same basename-only rule the rest of
+    # the uploads path uses, so a crafted value cannot point anywhere else.
+    _read_upload(body.image_url)
+
+    model.image_url = body.image_url
+    model.sprite_columns = body.sprite_columns
+    model.sprite_rows = body.sprite_rows
+    model.sprite_frame_count = body.sprite_frame_count
+    await db.commit()
+    await db.refresh(model)
+    return _model_out(model)
+
+
+# ---------------------------------------------------------------------------
+# Saved gestures: a movement the admin wrote, kept to be used again
+# ---------------------------------------------------------------------------
+
+
+def _preset_out(row: GesturePreset) -> GesturePresetOut:
+    return GesturePresetOut(
+        id=row.id,
+        name=row.name,
+        label=row.label or row.name,
+        poses=list(row.poses_json or []),
+        fps=row.fps or 0,
+        weight=row.weight or 1.0,
+        lift=row.lift or 0.0,
+        created_at=row.created_at,
+    )
+
+
+@router.get("/gestures", response_model=list[GesturePresetOut])
+async def list_gestures(db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)):
+    rows = (
+        (await db.execute(select(GesturePreset).order_by(GesturePreset.created_at.desc())))
+        .scalars()
+        .all()
+    )
+    return [_preset_out(r) for r in rows]
+
+
+@router.post("/gestures", response_model=GesturePresetOut)
+async def save_gesture(
+    body: GesturePresetIn, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    """Keeps a hand-written gesture. Saving the same name again replaces it,
+    which is what editing one and pressing save is meant to do."""
+    name = body.name.strip()
+    poses = [p.strip() for p in body.poses if p.strip()]
+    if not name:
+        raise HTTPException(400, "Dê um nome ao gesto.")
+    if not poses:
+        raise HTTPException(400, "Escreva pelo menos uma pose para o gesto.")
+
+    row = (
+        await db.execute(select(GesturePreset).where(GesturePreset.name == name))
+    ).scalar_one_or_none()
+    if row is None:
+        row = GesturePreset(name=name)
+        db.add(row)
+    row.label = body.label.strip() or name
+    row.poses_json = poses
+    row.fps = body.fps
+    row.weight = body.weight
+    row.lift = body.lift
+    await db.commit()
+    await db.refresh(row)
+    return _preset_out(row)
+
+
+@router.delete("/gestures/{gesture_id}")
+async def delete_gesture(
+    gesture_id: str, db: AsyncSession = Depends(get_db), _: str = Depends(require_admin)
+):
+    """Forgets the gesture. Sheets already generated with it are untouched:
+    the movement is drawn into their rows, not looked up here."""
+    row = await db.get(GesturePreset, gesture_id)
+    if row is None:
+        raise HTTPException(404, "gesto não encontrado")
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.delete("/models/{model_id}")

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_BASE, api } from "../../api/client";
+import SpritePreview from "../SpritePreview";
 
 /** One image service the panel can draw with. */
 interface ProviderInfo {
@@ -206,6 +207,13 @@ const GESTURE_PRESETS: (Gesture & { label: string })[] = [
   },
 ];
 
+/** A gesture the admin wrote and saved, so it comes back as a chip next to
+ * the built-in ones instead of having to be typed again. */
+interface SavedGesture extends Gesture {
+  id: string;
+  label: string;
+}
+
 /** A finished animated character, kept so it can be applied to any character
  * later without generating (and paying for) it again. */
 interface SpriteModel {
@@ -257,6 +265,11 @@ export default function SpriteStudio() {
   // The three that make the biggest difference for the fewest images.
   const [gestureNames, setGestureNames] = useState<string[]>(["piscada", "pulo", "lingua"]);
   const [customGestures, setCustomGestures] = useState<Gesture[]>([]);
+  const [savedGestures, setSavedGestures] = useState<SavedGesture[]>([]);
+  const [savedPicked, setSavedPicked] = useState<string[]>([]);
+  // Saving a gesture has nothing to do with generating a sheet, so its answer
+  // cannot live in the result card -- that card is not on screen yet.
+  const [gestureMsg, setGestureMsg] = useState("");
   const [columns, setColumns] = useState(0);
   const [fps, setFps] = useState(8);
   const [sheet, setSheet] = useState<Sheet | null>(null);
@@ -273,6 +286,7 @@ export default function SpriteStudio() {
     api.get<Status>("/api/sprites/status").then(setStatus).catch(() => setStatus(null));
     api.get<Character[]>("/api/characters").then(setCharacters);
     api.get<SpriteModel[]>("/api/sprites/models").then(setModels).catch(() => undefined);
+    loadGestures();
   }, []);
 
   /** Runs a key action and folds the outcome into the banner. The key itself
@@ -383,6 +397,9 @@ export default function SpriteStudio() {
     ...GESTURE_PRESETS.filter((g) => gestureNames.includes(g.name)).map(
       ({ label: _label, ...gesture }) => gesture,
     ),
+    ...savedGestures
+      .filter((gesture) => savedPicked.includes(gesture.name))
+      .map(({ id: _id, label: _label, ...gesture }) => gesture),
     ...customGestures.filter((gesture) => gesture.name.trim() && gesture.poses.some((pose) => pose.trim())),
   ];
   const gestureFrames = chosenGestures.reduce((sum, g) => sum + g.poses.length, 0);
@@ -391,7 +408,7 @@ export default function SpriteStudio() {
     setGestureNames((list) =>
       list.includes(name)
         ? list.filter((n) => n !== name)
-        : list.length + customGestures.length >= (status?.max_gestures ?? 6)
+        : list.length + customGestures.length + savedPicked.length >= (status?.max_gestures ?? 6)
           ? list
           : [...list, name],
     );
@@ -420,6 +437,54 @@ export default function SpriteStudio() {
         gestureIndex === index ? { ...gesture, ...patch } : gesture,
       ),
     );
+
+  /** Keeps a hand-written gesture, so the next character can start from it
+   * instead of having every pose typed again. Saving under a name that
+   * already exists replaces it, which is what editing one means. */
+  const saveGesture = async (gesture: Gesture) => {
+    const poses = gesture.poses.filter((pose) => pose.trim());
+    if (!gesture.name.trim() || !poses.length) {
+      setGestureMsg("");
+      setError("Dê um nome ao gesto e escreva pelo menos uma pose antes de salvar.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setGestureMsg("");
+    try {
+      await api.post("/api/sprites/gestures", { ...gesture, poses, label: gesture.name });
+      await loadGestures();
+      setGestureMsg(`Gesto "${gesture.name}" salvo — ele agora aparece em "seus gestos salvos" aqui em cima.`);
+    } catch (err) {
+      setGestureMsg("");
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeGesture = async (gesture: SavedGesture) => {
+    if (!window.confirm(`Excluir o gesto "${gesture.label}"? As folhas já geradas não mudam.`)) return;
+    setBusy(true);
+    try {
+      await api.del(`/api/sprites/gestures/${gesture.id}`);
+      setSavedPicked((list) => list.filter((name) => name !== gesture.name));
+      await loadGestures();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Puts a saved gesture back in the form to be edited before generating. */
+  const editSavedGesture = (gesture: SavedGesture) => {
+    setSavedPicked((list) => list.filter((name) => name !== gesture.name));
+    setCustomGestures((list) => [
+      ...list,
+      { name: gesture.name, poses: [...gesture.poses], lift: gesture.lift, weight: gesture.weight, fps: gesture.fps },
+    ]);
+  };
 
   /** Generation makes one call to the image provider per frame and runs well
    * past a minute. Waiting on a single request meant whatever proxy sits in
@@ -486,6 +551,10 @@ export default function SpriteStudio() {
   const loadModels = () =>
     api.get<SpriteModel[]>("/api/sprites/models").then(setModels).catch(() => undefined);
 
+  const loadGestures = () =>
+    api.get<SavedGesture[]>("/api/sprites/gestures").then(setSavedGestures).catch(() => undefined);
+    loadGestures();
+
   const saveModel = async () => {
     if (!sheet || !modelName.trim()) return;
     setBusy(true);
@@ -509,6 +578,49 @@ export default function SpriteStudio() {
       );
       setModelName("");
       await loadModels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Puts an edited PNG back into a model that was already saved.
+   *
+   * The sheet leaves here to be touched up in an image editor, and this is
+   * the way back in. The grid has to keep dividing exactly, otherwise the
+   * game would slice the new drawing at the wrong place.
+   */
+  const replaceModelSheet = async (model: SpriteModel, file: File) => {
+    setBusy(true);
+    setError("");
+    try {
+      const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+        image.onerror = () => reject(new Error("Não consegui ler o PNG escolhido."));
+        image.src = URL.createObjectURL(file);
+      });
+      const cols = Math.max(1, model.sprite_columns);
+      const rows = Math.max(1, model.sprite_rows);
+      if (model.sprite_columns > 0 && (size.width % cols !== 0 || size.height % rows !== 0)) {
+        throw new Error(
+          `A imagem precisa dividir exatamente em ${cols} coluna(s) e ${rows} linha(s). ` +
+            `A que você mandou tem ${size.width}×${size.height} px.`,
+        );
+      }
+      const { url } = await api.upload("/api/characters/upload", file);
+      await api.put(`/api/sprites/models/${model.id}/sheet`, {
+        image_url: url,
+        sprite_columns: model.sprite_columns,
+        sprite_rows: model.sprite_rows,
+        sprite_frame_count: model.sprite_frame_count,
+      });
+      await loadModels();
+      setApplied(
+        `Folha de "${model.name}" substituída. Em Personagens, aplique o modelo de novo ` +
+          "para levar o desenho novo ao personagem.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -790,6 +902,50 @@ export default function SpriteStudio() {
             </button>
           ))}
         </div>
+        {savedGestures.length > 0 && (
+          <>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "10px 0 6px" }}>
+              Seus gestos salvos — clique para usar nesta folha:
+            </p>
+            <div className="gift-filters" style={{ marginBottom: 8 }}>
+              {savedGestures.map((gesture) => (
+                <span key={gesture.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <button
+                    className={`chip ${savedPicked.includes(gesture.name) ? "on" : ""}`}
+                    title={gesture.poses.join(" → ")}
+                    onClick={() =>
+                      setSavedPicked((list) =>
+                        list.includes(gesture.name)
+                          ? list.filter((name) => name !== gesture.name)
+                          : list.length + gestureNames.length + customGestures.length >= (status?.max_gestures ?? 6)
+                            ? list
+                            : [...list, gesture.name],
+                      )
+                    }
+                  >
+                    ⭐ {gesture.label} · {gesture.poses.length}q
+                  </button>
+                  <button
+                    className="secondary"
+                    style={{ padding: "2px 7px", fontSize: 11 }}
+                    title="Abrir para editar antes de gerar"
+                    onClick={() => editSavedGesture(gesture)}
+                  >
+                    editar
+                  </button>
+                  <button
+                    className="secondary"
+                    style={{ padding: "2px 7px", fontSize: 11 }}
+                    onClick={() => removeGesture(gesture)}
+                    disabled={busy}
+                  >
+                    excluir
+                  </button>
+                </span>
+              ))}
+            </div>
+          </>
+        )}
         {customGestures.map((gesture, gestureIndex) => (
           <div
             key={`custom-${gestureIndex}`}
@@ -880,16 +1036,31 @@ export default function SpriteStudio() {
                 </button>
               </div>
             ))}
-            <button
-              className="secondary"
-              style={{ marginTop: 8 }}
-              disabled={gesture.poses.length >= (status?.max_gesture_poses ?? 6)}
-              onClick={() =>
-                updateCustomGesture(gestureIndex, { poses: [...gesture.poses, ""] })
-              }
-            >
-              + Quadro do gesto
-            </button>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button
+                className="secondary"
+                disabled={gesture.poses.length >= (status?.max_gesture_poses ?? 6)}
+                onClick={() =>
+                  updateCustomGesture(gestureIndex, { poses: [...gesture.poses, ""] })
+                }
+              >
+                + Quadro do gesto
+              </button>
+              <button
+                onClick={() => saveGesture(gesture)}
+                disabled={busy || !gesture.name.trim() || !gesture.poses.some((pose) => pose.trim())}
+                title="Guarda este gesto para usar em outros personagens"
+              >
+                💾 Salvar gesto
+              </button>
+            </div>
+            <p style={{ color: "#9a9ac0", fontSize: 11, margin: "6px 0 0" }}>
+              Salvar guarda só o texto do gesto, não gasta imagem nenhuma. Ele passa a
+              aparecer ali em cima em <b>gestos salvos</b>, pronto para o próximo personagem.
+            </p>
+            {gestureMsg && (
+              <p style={{ color: "#4ade80", fontSize: 12, margin: "6px 0 0" }}>{gestureMsg}</p>
+            )}
           </div>
         ))}
         <button
@@ -989,6 +1160,25 @@ export default function SpriteStudio() {
                 {sheet.columns} coluna(s) × {sheet.rows} linha(s) — {sheet.frame_count} quadros de{" "}
                 {sheet.frame_width}×{sheet.frame_height} px
               </p>
+
+              {sheet.columns > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #262638" }}>
+                  <h4 style={{ margin: "0 0 4px", fontSize: 14 }}>Em movimento</h4>
+                  <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 8px" }}>
+                    Tocando como a arena vai tocar. É aqui que dá para ver se o loop fecha e
+                    se o gesto lê — numa grade de quadros parados isso não aparece.
+                  </p>
+                  <SpritePreview
+                    url={`${API_BASE}${sheet.url}`}
+                    columns={sheet.columns}
+                    rows={sheet.rows}
+                    frameCount={sheet.frame_count}
+                    fps={fps}
+                    clips={sheet.clips}
+                    gesturesOnly={tankGesturesOnly}
+                  />
+                </div>
+              )}
               {sheet.clips.length > 0 && (
                 <ul style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 4px", paddingLeft: 18 }}>
                   {sheet.clips.map((clip) => (
@@ -1109,7 +1299,7 @@ export default function SpriteStudio() {
                   border: "1px solid #2f2f47",
                   borderRadius: 10,
                   padding: 10,
-                  width: 200,
+                  width: 260,
                   background: "#14141f",
                 }}
               >
@@ -1132,14 +1322,62 @@ export default function SpriteStudio() {
                   {model.hit_image_url && " · dano"}
                   {model.fire_image_url && " · ataque"}
                 </div>
-                <button
-                  className="secondary"
-                  onClick={() => removeModel(model)}
-                  disabled={busy}
-                  style={{ marginTop: 8, padding: "3px 10px", fontSize: 12 }}
-                >
-                  Excluir
-                </button>
+                {model.image_url && model.sprite_columns > 0 && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: "pointer", color: "#9a9ac0", fontSize: 12 }}>
+                      ▶ Ver em movimento
+                    </summary>
+                    <div style={{ marginTop: 8 }}>
+                      <SpritePreview
+                        url={`${API_BASE}${model.image_url}`}
+                        columns={model.sprite_columns}
+                        rows={model.sprite_rows}
+                        frameCount={model.sprite_frame_count}
+                        fps={model.sprite_fps}
+                        clips={model.sprite_clips ?? []}
+                        height={170}
+                      />
+                    </div>
+                  </details>
+                )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {model.image_url && (
+                    <a
+                      className="secondary"
+                      style={{ padding: "3px 10px", fontSize: 12 }}
+                      href={`${API_BASE}${model.image_url}`}
+                      download={`${model.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.png`}
+                    >
+                      Baixar folha
+                    </a>
+                  )}
+                  <label
+                    className="secondary"
+                    style={{ padding: "3px 10px", fontSize: 12, cursor: busy ? "default" : "pointer" }}
+                    title="Troca o desenho mantendo a grade e os gestos"
+                  >
+                    Substituir folha
+                    <input
+                      type="file"
+                      accept="image/png"
+                      style={{ display: "none" }}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) void replaceModelSheet(model, file);
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="secondary"
+                    onClick={() => removeModel(model)}
+                    disabled={busy}
+                    style={{ padding: "3px 10px", fontSize: 12 }}
+                  >
+                    Excluir
+                  </button>
+                </div>
               </div>
             ))}
           </div>

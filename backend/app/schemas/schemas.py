@@ -252,6 +252,26 @@ class SpriteModelOut(BaseModel):
         from_attributes = True
 
 
+class GesturePresetIn(BaseModel):
+    """A gesture the admin wrote and wants back next time."""
+
+    #: Also the clip name on the sheet, so it stays machine-friendly.
+    name: str = Field(min_length=1, max_length=40)
+    label: str = Field(default="", max_length=60)
+    poses: list[str] = Field(default_factory=list, max_length=6)
+    fps: int = Field(default=0, ge=0, le=60)
+    weight: float = Field(default=1.0, gt=0.0, le=10.0)
+    lift: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class GesturePresetOut(GesturePresetIn):
+    id: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ComboTierIn(BaseModel):
     threshold: int
     label: str
