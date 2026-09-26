@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, assetUrl } from "../../api/client";
+import MovementSounds from "../MovementSounds";
 
 interface Character {
   id: string;
@@ -24,6 +25,8 @@ interface Character {
    * means the whole grid is one loop, which is how sheets worked before
    * gestures existed. */
   sprite_clips: Clip[];
+  /** A sound per movement: "base", a gesture's name, "hit", "fire". */
+  sprite_sounds: Record<string, string>;
   xp_max: number;
 }
 
@@ -59,6 +62,7 @@ const empty: Omit<Character, "id"> = {
   hit_image_url: null,
   fire_image_url: null,
   sprite_clips: [],
+  sprite_sounds: {},
   xp_max: 100000,
 };
 
@@ -74,6 +78,7 @@ interface SpriteModel {
   hit_image_url: string | null;
   fire_image_url: string | null;
   sprite_clips: Clip[];
+  sprite_sounds?: Record<string, string>;
 }
 
 /** What this character will actually do in the arena, in one sentence.
@@ -172,6 +177,7 @@ export default function Characters() {
       // Without the clip list the game plays every row as one loop, gestures
       // included -- the character would blink and hop as part of its walk.
       sprite_clips: model.sprite_clips ?? [],
+      sprite_sounds: model.sprite_sounds ?? {},
     });
     setNotice({
       kind: "ok",
@@ -388,6 +394,20 @@ export default function Characters() {
                 />
               </div>
             </div>
+
+            {form.sprite_columns > 0 && (
+              <>
+                <label>Som de cada movimento (opcional)</label>
+                <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 6px" }}>
+                  Toca na arena quando o personagem faz aquele movimento. Salve o personagem para valer.
+                </p>
+                <MovementSounds
+                  clips={form.sprite_clips ?? []}
+                  sounds={form.sprite_sounds ?? {}}
+                  onChange={(sprite_sounds) => setForm({ ...form, sprite_sounds })}
+                />
+              </>
+            )}
 
             <label>Imagem ao levar dano (opcional)</label>
             <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 6px" }}>

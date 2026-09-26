@@ -11,6 +11,7 @@ import type {
 } from "../../types/events";
 import {
   buildCharacterObject,
+  setCharacterSoundSink,
   flashAction,
   isAnimated,
   preloadActionArt,
@@ -100,6 +101,7 @@ export default class GameScene extends Phaser.Scene {
     this.xp = new XPManager(this);
     this.feed = new FeedManager(this);
     this.audio = new AudioManager();
+    setCharacterSoundSink((url) => this.audio.playFile(url));
     this.audio.init();
 
     drawArenaOverlay(this);

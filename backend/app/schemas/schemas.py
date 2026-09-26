@@ -20,6 +20,14 @@ def _list_or_empty(value: Any) -> Any:
 JsonList = Annotated[list[dict[str, Any]], BeforeValidator(_list_or_empty)]
 
 
+def _dict_or_empty(value: Any) -> Any:
+    return {} if value is None else value
+
+
+#: Same idea for a JSON object column: NULL reads as {}.
+JsonDict = Annotated[dict[str, str], BeforeValidator(_dict_or_empty)]
+
+
 # ---------------------------------------------------------------------------
 # Standard normalized live event (section 48 of the spec). Every provider
 # (TikTok, Simulator, future platforms) must emit exactly this shape so the
@@ -75,6 +83,8 @@ class CharacterIn(BaseModel):
     sprite_fps: int = 10
     #: Rows of the sheet, named. See Character.sprite_clips.
     sprite_clips: JsonList = Field(default_factory=list)
+    #: Sound per movement: "base", a gesture's name, "hit", "fire" -> /uploads URL.
+    sprite_sounds: JsonDict = Field(default_factory=dict)
     hit_image_url: str | None = None
     fire_image_url: str | None = None
     xp_max: int = 100_000
@@ -229,6 +239,8 @@ class SpriteModelIn(BaseModel):
     fire_image_url: str | None = None
     #: Which row of the sheet is which movement. See Character.sprite_clips.
     sprite_clips: JsonList = Field(default_factory=list)
+    #: Sound per movement: "base", a gesture's name, "hit", "fire" -> /uploads URL.
+    sprite_sounds: JsonDict = Field(default_factory=dict)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
 
@@ -244,6 +256,8 @@ class SpriteModelOut(BaseModel):
     hit_image_url: str | None = None
     fire_image_url: str | None = None
     sprite_clips: JsonList = Field(default_factory=list)
+    #: Sound per movement: "base", a gesture's name, "hit", "fire" -> /uploads URL.
+    sprite_sounds: JsonDict = Field(default_factory=dict)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
     created_at: datetime

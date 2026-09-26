@@ -67,6 +67,10 @@ class Character(Base):
     #
     # Empty keeps the old behaviour: the whole grid as one loop.
     sprite_clips: Mapped[list] = mapped_column(JSON, default=list)
+    # A sound per movement: "base", each gesture by its clip name, "hit" and
+    # "fire". Keyed by name rather than row so reordering a sheet's rows does
+    # not reassign a jump's sound to a blink.
+    sprite_sounds: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Reaction art: single stills swapped in for a moment when the character
     # does something. Optional -- without them the character just keeps its
@@ -110,6 +114,10 @@ class SpriteModel(Base):
     # Kept here too, otherwise applying a model would hand a character a sheet
     # of gestures with nothing saying where they are.
     sprite_clips: Mapped[list] = mapped_column(JSON, default=list)
+    # A sound per movement: "base", each gesture by its clip name, "hit" and
+    # "fire". Keyed by name rather than row so reordering a sheet's rows does
+    # not reassign a jump's sound to a blink.
+    sprite_sounds: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # What produced it, kept so a model can be regenerated or tweaked later
     # without remembering what was typed months ago.

@@ -36,6 +36,8 @@ export class AudioManager {
   private currentCategory: string | null = null;
   private trackIndex: Record<string, number> = {};
   private unlockBound = false;
+  private fileCache = new Map<string, HTMLAudioElement>();
+  private lastPlayed = new Map<string, number>();
 
   async init(): Promise<void> {
     try {
@@ -166,6 +168,31 @@ export class AudioManager {
     gain.gain.value = vol * gainScale;
     src.connect(gain).connect(this.ctx.destination);
     src.start();
+  }
+
+  /** An uploaded sound, e.g. a character's own effect for a movement.
+   *
+   * Each URL is loaded once and cloned per play, so two quick hits overlap
+   * instead of the second cutting the first off. The same file is not
+   * restarted within a short window: a crowd of simultaneous reactions
+   * would otherwise stack into one loud click. */
+  playFile(url: string, channel: keyof MixerVolumes = "alerts"): void {
+    if (!url) return;
+    const now = performance.now();
+    if (now - (this.lastPlayed.get(url) ?? 0) < 120) return;
+    this.lastPlayed.set(url, now);
+
+    let base = this.fileCache.get(url);
+    if (!base) {
+      base = new Audio(resolveUrl(url));
+      base.preload = "auto";
+      this.fileCache.set(url, base);
+    }
+    const voice = base.cloneNode(true) as HTMLAudioElement;
+    voice.volume = Math.max(0, Math.min(1, (this.mixer[channel] ?? 70) / 100));
+    voice.play().catch(() => {
+      /* autoplay blocked until the page is touched -- the OBS source never is, and plays */
+    });
   }
 
   shot(): void {

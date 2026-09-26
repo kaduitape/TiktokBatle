@@ -127,18 +127,31 @@ def already_transparent(image: Image.Image) -> bool:
     return bool((alpha < 16).mean() > 0.05)
 
 
-def border_colour(rgb: np.ndarray) -> tuple[np.ndarray, float]:
-    """The colour the frame's edge is made of, and how much of it agrees."""
+def border_colour(rgb: np.ndarray, alpha: np.ndarray | None = None) -> tuple[np.ndarray, float]:
+    """The colour the frame's edge is made of, and how much of it agrees.
+
+    Pixels that are already transparent are left out: a card cut from a
+    larger sheet keeps a thin transparent margin around it, and that margin
+    is not the card's colour.
+    """
     h, w, _ = rgb.shape
     band = max(1, min(h, w) // 100)
-    border = np.concatenate(
-        [
-            rgb[:band].reshape(-1, 3),
-            rgb[-band:].reshape(-1, 3),
-            rgb[:, :band].reshape(-1, 3),
-            rgb[:, -band:].reshape(-1, 3),
-        ]
-    )
+
+    def edge(a: np.ndarray, channels: int) -> np.ndarray:
+        return np.concatenate(
+            [
+                a[:band].reshape(-1, channels),
+                a[-band:].reshape(-1, channels),
+                a[:, :band].reshape(-1, channels),
+                a[:, -band:].reshape(-1, channels),
+            ]
+        )
+
+    border = edge(rgb, 3)
+    if alpha is not None:
+        solid = edge(alpha[:, :, None], 1)[:, 0] >= 16
+        if solid.any():
+            border = border[solid]
     # The median holds steady when a tentacle or a hat brim clips a corner.
     colour = np.median(border, axis=0)
     close = np.abs(border.astype(np.int16) - colour).max(axis=1) <= DEFAULT_TOLERANCE
@@ -207,7 +220,7 @@ def cut_out(
     array = np.asarray(rgba).astype(np.float32)
     rgb = array[:, :, :3]
 
-    colour, agreement = border_colour(rgb.astype(np.uint8))
+    colour, agreement = border_colour(rgb.astype(np.uint8), array[:, :, 3])
     if agreement < MIN_BORDER_AGREEMENT:
         logger.info("fundo não removido: a borda não é de uma cor só (%.0f%%)", agreement * 100)
         return rgba, False
@@ -216,7 +229,10 @@ def cut_out(
 
     if key is not None and float(np.abs(colour - np.array(key)).max()) <= KEY_HONOURED:
         return _key_out(array, colour, distance)
-    background = _flood_from_border(distance <= tolerance)
+
+    # Already-transparent pixels are background the fill may pass through --
+    # otherwise a transparent margin around a card stops it before it starts.
+    background = _flood_from_border((distance <= tolerance) | (array[:, :, 3] < 16))
 
     erased = float(background.mean())
     if erased > MAX_ERASED_FRACTION:

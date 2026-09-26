@@ -19,6 +19,8 @@ export interface CharacterPayload {
   /** What each row of the sheet is: the base loop plus the gestures played
    * between its turns. Empty means the whole grid is one loop. */
   sprite_clips?: SpriteClipPayload[];
+  /** A sound per movement: "base", a gesture's name, "hit", "fire". */
+  sprite_sounds?: Record<string, string>;
   /** Reaction art, swapped in briefly when the character is hit or fires. */
   hit_image_url: string | null;
   fire_image_url: string | null;

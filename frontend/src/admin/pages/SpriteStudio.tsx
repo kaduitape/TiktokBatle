@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { API_BASE, api } from "../../api/client";
 import SpritePreview from "../SpritePreview";
+import MovementSounds from "../MovementSounds";
 
 /** One image service the panel can draw with. */
 interface ProviderInfo {
@@ -209,6 +210,15 @@ const GESTURE_PRESETS: (Gesture & { label: string })[] = [
   },
 ];
 
+/** One row the importer found on a ready-made sheet, and what it is for. */
+interface DetectedRow {
+  index: number;
+  frames: number;
+  role: "base" | "gesture" | "hit" | "fire" | "ignore";
+  name: string;
+  preview: string;
+}
+
 /** A gesture the admin wrote and saved, so it comes back as a chip next to
  * the built-in ones instead of having to be typed again. */
 interface SavedGesture extends Gesture {
@@ -275,6 +285,16 @@ export default function SpriteStudio() {
   const [columns, setColumns] = useState(0);
   const [fps, setFps] = useState(8);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  /** A sound per movement, carried into the model or character made from this sheet. */
+  const [sounds, setSounds] = useState<Record<string, string>>({});
+  /** An imported sheet: where it came from and what each detected row is for. */
+  const [importUrl, setImportUrl] = useState<string | null>(null);
+  const [detected, setDetected] = useState<DetectedRow[]>([]);
+  const [newName, setNewName] = useState("");
+  const [newSide, setNewSide] = useState<"A" | "B">("A");
+  // Shown in the import card itself: an error printed in the generation card
+  // below would be missed by someone looking at the file they just picked.
+  const [importError, setImportError] = useState("");
   const [targetId, setTargetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -497,6 +517,8 @@ export default function SpriteStudio() {
     setError("");
     setApplied("");
     setSheet(null);
+    setImportUrl(null);
+    setDetected([]);
     setProgress("começando...");
     try {
       const generationPoses = tankGesturesOnly
@@ -572,6 +594,7 @@ export default function SpriteStudio() {
         hit_image_url: sheet.hit_url,
         fire_image_url: sheet.fire_url,
         sprite_clips: sheet.clips,
+        sprite_sounds: sounds,
         description,
         poses: poses.filter((pose) => pose.trim()),
       });
@@ -643,6 +666,101 @@ export default function SpriteStudio() {
     }
   };
 
+  /** Reads a sheet made elsewhere: the grid is found, each frame is cleaned,
+   * and the result is the same kind of sheet generation produces -- so the
+   * preview, "salvar modelo" and "aplicar" below all work on it unchanged. */
+  const importSheet = async (url: string, rows?: DetectedRow[]) => {
+    setBusy(true);
+    setError("");
+    setApplied("");
+    setImportError("");
+    setProgress("lendo a folha…");
+    try {
+      const result = await api.post<Sheet & { detected: DetectedRow[] }>("/api/sprites/import", {
+        image_url: url,
+        rows: rows?.map(({ role, name }) => ({ role, name })),
+      });
+      const { detected: found, ...rest } = result;
+      setImportUrl(url);
+      setDetected(found);
+      setSheet(rest);
+      setApplied(
+        `Encontrei ${found.length} linha(s) e ${found.reduce((n, r) => n + r.frames, 0)} quadro(s). ` +
+          "Confira abaixo o que cada linha é e veja em movimento.",
+      );
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  };
+
+  const uploadForImport = async (file: File) => {
+    setBusy(true);
+    setError("");
+    try {
+      const { url } = await api.upload("/api/characters/upload", file);
+      setBusy(false);
+      await importSheet(url);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  const setRow = (index: number, patch: Partial<DetectedRow>) =>
+    setDetected((rows) => rows.map((row) => (row.index === index ? { ...row, ...patch } : row)));
+
+  /** The art fields every save shares, so a model, an applied character and a
+   * brand-new one all carry the same thing. */
+  const artFields = () =>
+    sheet
+      ? {
+          ...(sheet.url
+            ? {
+                image_url: sheet.url,
+                sprite_columns: sheet.columns,
+                sprite_rows: sheet.rows,
+                sprite_frame_count: sheet.frame_count,
+                sprite_fps: fps,
+                sprite_clips: sheet.clips,
+              }
+            : {}),
+          ...(sheet.hit_url ? { hit_image_url: sheet.hit_url } : {}),
+          ...(sheet.fire_url ? { fire_image_url: sheet.fire_url } : {}),
+          sprite_sounds: sounds,
+        }
+      : {};
+
+  /** Straight from the sheet to a character, without a detour through
+   * Personagens. It lands on the chosen side, facing the middle. */
+  const createCharacter = async () => {
+    if (!sheet || !newName.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.post("/api/characters", {
+        name: newName.trim(),
+        team_color: newSide === "A" ? "#e74c3c" : "#3498db",
+        pos_x: newSide === "A" ? 0.25 : 0.75,
+        pos_y: 0.5,
+        flip_h: newSide === "B",
+        ...artFields(),
+      });
+      setCharacters(await api.get<Character[]>("/api/characters"));
+      setApplied(
+        `Personagem "${newName.trim()}" criado no lado ${newSide}. Escolha ele numa batalha em ` +
+          "Batalhas (Lado A / Lado B) para aparecer na arena.",
+      );
+      setNewName("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const applyToCharacter = async () => {
     if (!sheet || !targetId) return;
     setBusy(true);
@@ -667,6 +785,7 @@ export default function SpriteStudio() {
           : {}),
         ...(sheet.hit_url ? { hit_image_url: sheet.hit_url } : {}),
         ...(sheet.fire_url ? { fire_image_url: sheet.fire_url } : {}),
+        ...(Object.keys(sounds).length ? { sprite_sounds: sounds } : {}),
       });
       const parts = [
         sheet.url && "animação",
@@ -776,6 +895,29 @@ export default function SpriteStudio() {
           <code>{ENV_VAR[provider] ?? "BATTLE_IMAGE_API_KEY"}</code> no <code>.env</code>. Uma
           chave colada aqui tem prioridade sobre a do <code>.env</code>.
         </p>
+      </div>
+
+      <div className="card">
+        <h3>Já tenho a folha pronta</h3>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 10px", lineHeight: 1.6 }}>
+          Envie uma imagem com as poses do personagem — feita em outro lugar, desalinhada, com
+          linhas de tamanhos diferentes, até com fundo liso atrás de alguns quadros. O sistema{" "}
+          <b>encontra cada pose sozinho</b>, tira o fundo, iguala o tamanho, alinha pela cabeça e
+          monta a folha. Não precisa dizer quantas colunas ou linhas tem. Nenhuma imagem é gerada
+          nem cobrada.
+        </p>
+        <input
+          type="file"
+          accept="image/*"
+          disabled={busy}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void uploadForImport(file);
+          }}
+        />
+        {busy && progress && <p style={{ color: "#9a9ac0", fontSize: 13 }}>{progress}</p>}
+        {importError && <p style={{ color: "#ff6b6b", fontSize: 13 }}>{importError}</p>}
       </div>
 
       <div className="card">
@@ -1234,6 +1376,76 @@ export default function SpriteStudio() {
               )}
             </div>
           )}
+
+          {importUrl && detected.length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262638" }}>
+              <h4 style={{ margin: "0 0 4px", fontSize: 14 }}>O que cada linha da sua folha é</h4>
+              <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 8px" }}>
+                <b>Movimento base</b> roda em loop (várias linhas marcadas assim viram um loop só,
+                na ordem). <b>Gesto</b> entra de vez em quando. <b>Dano</b>/<b>Ataque</b> usam o
+                primeiro quadro da linha como imagem de reação.
+              </p>
+              {detected.map((row) => (
+                <div className="row" key={row.index} style={{ marginBottom: 8, alignItems: "center" }}>
+                  <span className="pill">L{row.index + 1}</span>
+                  <img
+                    src={row.preview}
+                    alt={`linha ${row.index + 1}`}
+                    style={{ height: 48, maxWidth: 320, objectFit: "contain", background: CHECKER, borderRadius: 4 }}
+                  />
+                  <span style={{ fontSize: 12, color: "#9a9ac0" }}>{row.frames} quadro(s)</span>
+                  <select
+                    value={row.role}
+                    onChange={(e) => setRow(row.index, { role: e.target.value as DetectedRow["role"] })}
+                  >
+                    <option value="base">Movimento base</option>
+                    <option value="gesture">Gesto</option>
+                    <option value="hit">Imagem de dano</option>
+                    <option value="fire">Imagem de ataque</option>
+                    <option value="ignore">Ignorar</option>
+                  </select>
+                  {row.role === "gesture" && (
+                    <input
+                      style={{ width: 130 }}
+                      value={row.name}
+                      placeholder="nome do gesto"
+                      onChange={(e) => setRow(row.index, { name: e.target.value.replace(/[^a-zA-Z0-9_-]/g, "_") })}
+                    />
+                  )}
+                </div>
+              ))}
+              <button onClick={() => importSheet(importUrl, detected)} disabled={busy}>
+                Remontar com estas escolhas
+              </button>
+            </div>
+          )}
+
+          {sheet.url && sheet.columns > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262638" }}>
+              <h4 style={{ margin: "0 0 4px", fontSize: 14 }}>Som de cada movimento</h4>
+              <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 8px" }}>
+                Opcional. Vai junto quando você salva o modelo, aplica ou cria o personagem.
+              </p>
+              <MovementSounds clips={sheet.clips} sounds={sounds} onChange={setSounds} disabled={busy} />
+            </div>
+          )}
+
+          <div
+            className="row"
+            style={{ marginTop: 14, alignItems: "flex-end", paddingTop: 12, borderTop: "1px solid #262638" }}
+          >
+            <div style={{ flex: 1 }}>
+              <label>Criar personagem com esta folha</label>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome do personagem" />
+            </div>
+            <select value={newSide} onChange={(e) => setNewSide(e.target.value as "A" | "B")}>
+              <option value="A">Lado A</option>
+              <option value="B">Lado B</option>
+            </select>
+            <button onClick={createCharacter} disabled={busy || !newName.trim() || !sheet.url}>
+              ➕ Criar personagem
+            </button>
+          </div>
 
           <div
             className="row"

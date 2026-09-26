@@ -69,7 +69,15 @@ export interface CharacterAnimatorOptions {
   gesturesOnly?: boolean;
   /** Absolute sheet frame used while a gestures-only character is waiting. */
   idleFrame?: number;
+  /** Sound per movement, keyed by clip name ("base" for the loop). */
+  sounds?: Record<string, string>;
+  /** Where sounds go -- the scene's audio mixer. */
+  playSound?: (url: string) => void;
 }
+
+/** The base loop repeats every second or so; its sound would become a drone.
+ * It plays at most this often. */
+const BASE_SOUND_GAP_MS = 4000;
 
 /** Drives one character's sprite. Created per character, destroyed with it. */
 export class CharacterAnimator {
@@ -88,6 +96,9 @@ export class CharacterAnimator {
   /** A reaction (taking a hit, attacking) owns the sprite while it plays. */
   private suspended = false;
   private gesturesOnly = false;
+  private sounds: Record<string, string> = {};
+  private playSound?: (url: string) => void;
+  private lastBaseSound = 0;
   private idleFrame = 0;
 
   constructor(
@@ -105,6 +116,8 @@ export class CharacterAnimator {
     this.idle = clips.find((c) => c.kind === "idle") ?? clips[0];
     this.gestures = clips.filter((c) => c.kind === "gesture");
     this.gesturesOnly = options.gesturesOnly ?? false;
+    this.sounds = options.sounds ?? {};
+    this.playSound = options.playSound;
     this.idleFrame = Math.max(0, options.idleFrame ?? 0);
   }
 
@@ -154,6 +167,21 @@ export class CharacterAnimator {
     if (!this.scene.anims.exists(key)) return;
     this.sprite.play({ key, repeat: -1 }, true);
     this.driftTempo();
+    this.sound("base");
+    this.sprite.off(Phaser.Animations.Events.ANIMATION_REPEAT);
+    this.sprite.on(Phaser.Animations.Events.ANIMATION_REPEAT, () => this.sound("base"));
+  }
+
+  /** Plays the movement's own sound, if it has one. */
+  private sound(name: string): void {
+    const url = this.sounds[name] || (name === "base" ? this.sounds[this.idle?.name ?? ""] : "");
+    if (!url || !this.playSound || this.stopped || this.suspended) return;
+    if (name === "base") {
+      const now = this.scene.time.now;
+      if (now - this.lastBaseSound < BASE_SOUND_GAP_MS) return;
+      this.lastBaseSound = now;
+    }
+    this.playSound(url);
   }
 
   /** Tank War deliberately has no perpetual animation. The first frame of
@@ -260,6 +288,7 @@ export class CharacterAnimator {
     // this one and schedule a second timer.
     this.sprite.off(Phaser.Animations.Events.ANIMATION_COMPLETE);
     this.sprite.play({ key, repeat: 0 }, true);
+    this.sound(clip.name);
     this.hop(clip, (clip.frames / (clip.fps ?? this.baseFps)) * 1000);
     this.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
       // A reaction may have taken the sprite while the gesture ran.

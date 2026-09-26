@@ -396,6 +396,191 @@ def _to_out(result) -> GenerateOut:
 
 
 # ---------------------------------------------------------------------------
+# Importing a sheet the admin already has
+# ---------------------------------------------------------------------------
+
+
+class ImportRowIn(BaseModel):
+    """What one detected row is for.
+
+    ``base`` rows are the loop -- several of them are joined in order, which
+    is what a single long animation wrapped over several rows needs.
+    ``gesture`` rows play now and then; ``hit`` and ``fire`` take the row's
+    first frame as the reaction still; ``ignore`` leaves the row out.
+    """
+
+    role: str = Field(pattern="^(base|gesture|hit|fire|ignore)$")
+    name: str = Field(default="", max_length=40)
+
+
+class ImportIn(BaseModel):
+    image_url: str
+    #: One entry per detected row, in order. Omitted: a sensible guess.
+    rows: list[ImportRowIn] | None = None
+
+
+class ImportRowOut(BaseModel):
+    index: int
+    frames: int
+    role: str
+    name: str
+    #: A small strip of the row's frames, so the panel can show what it is.
+    preview: str
+
+
+class ImportOut(GenerateOut):
+    detected: list[ImportRowOut] = Field(default_factory=list)
+
+
+def _guess_roles(counts: list[int]) -> list[ImportRowIn]:
+    """A first answer the admin can correct.
+
+    Rows of equal length (the last one possibly shorter) read as one
+    animation wrapped over several lines -- all of it is the loop. Otherwise
+    the longest row is the loop and the rest are gestures.
+    """
+    if not counts:
+        return []
+    full = counts[:-1] if len(counts) > 1 else counts
+    if len(set(full)) == 1 and counts[-1] <= full[0]:
+        return [ImportRowIn(role="base") for _ in counts]
+    base = counts.index(max(counts))
+    roles, n = [], 0
+    for i in range(len(counts)):
+        if i == base:
+            roles.append(ImportRowIn(role="base"))
+        else:
+            n += 1
+            roles.append(ImportRowIn(role="gesture", name=f"gesto_{n}"))
+    return roles
+
+
+def _row_preview(frames, height: int = 64) -> str:
+    """The row's frames side by side, as a small inline PNG."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    thumbs = []
+    for f in frames:
+        img = f.image
+        ratio = height / max(1, img.height)
+        thumbs.append(img.resize((max(1, int(img.width * ratio)), height), Image.LANCZOS))
+    strip = Image.new("RGBA", (sum(t.width for t in thumbs) + 6 * len(thumbs), height), (0, 0, 0, 0))
+    x = 0
+    for t in thumbs:
+        strip.alpha_composite(t, (x, 0))
+        x += t.width + 6
+    buffer = BytesIO()
+    strip.save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+def _build_import(image_bytes: bytes, requested: list[ImportRowIn] | None):
+    """The CPU-heavy part, run off the event loop."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.services.sprite_import import detect_frames
+    from app.services.sprite_studio import Gesture, _as_png, _lay_out
+
+    try:
+        sheet = Image.open(BytesIO(image_bytes))
+        sheet.load()
+    except Exception as exc:  # noqa: BLE001 - anything unreadable is the same problem
+        raise HTTPException(400, "Não consegui ler a imagem enviada.") from exc
+
+    rows = detect_frames(sheet)
+    if not rows:
+        raise HTTPException(
+            400,
+            "Não encontrei nenhum personagem na imagem. Ela precisa ter fundo transparente "
+            "ou um fundo liso de uma cor só.",
+        )
+
+    counts = [len(r) for r in rows]
+    roles = list(requested or _guess_roles(counts))
+    # A request made against an earlier detection may not line up: fill or
+    # trim rather than fail.
+    guess = _guess_roles(counts)
+    roles = (roles + guess[len(roles):])[: len(rows)]
+
+    base: list = []
+    gestures: list = []
+    gesture_rows: list = []
+    hit = fire = None
+    used = 0
+    for row, role in zip(rows, roles):
+        images = [f.image for f in row]
+        if role.role == "base":
+            base += images
+        elif role.role == "gesture":
+            used += 1
+            name = (role.name or f"gesto_{used}").strip().replace(" ", "_")
+            gestures.append(Gesture(name=name, poses=[""] * len(images), weight=2.0))
+            gesture_rows.append(images)
+        elif role.role == "hit" and hit is None:
+            hit = _as_png(images[0])
+        elif role.role == "fire" and fire is None:
+            fire = _as_png(images[0])
+
+    if not base:
+        # Nothing marked as the loop: the first row that is not a still is.
+        for i, role in enumerate(roles):
+            if role.role == "gesture":
+                base = gesture_rows.pop(0)
+                gestures.pop(0)
+                roles[i] = ImportRowIn(role="base")
+                break
+    if not base:
+        raise HTTPException(400, "Marque pelo menos uma linha como movimento base.")
+
+    result = _lay_out(base, gestures, gesture_rows, 0, hit, fire)
+    kept = [
+        f"linha {ri + 1} quadro {fi + 1}"
+        for ri, row in enumerate(rows)
+        for fi, frame in enumerate(row)
+        if frame.cleaned == "kept"
+    ]
+    if kept:
+        result.warnings = [
+            "Não consegui tirar o fundo de: " + ", ".join(kept) + " (não era uma cor lisa). "
+            "Use uma imagem com fundo transparente ou de uma cor só."
+        ]
+
+    detected = [
+        ImportRowOut(
+            index=i,
+            frames=len(row),
+            role=role.role,
+            name=role.name,
+            preview=_row_preview(row),
+        )
+        for i, (row, role) in enumerate(zip(rows, roles))
+    ]
+    return result, detected
+
+
+@router.post("/import", response_model=ImportOut)
+async def import_sheet(body: ImportIn, _: str = Depends(require_admin)):
+    """Turns a sheet made elsewhere into a clean, playable one.
+
+    The grid is found, not asked for: each figure on the image is a frame,
+    figures in the same band are a row. Each frame is cleaned on its own,
+    then the whole set goes through the same composer the AI studio uses --
+    equal cells, sizes evened out, heads lined up.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    image_bytes = _read_upload(body.image_url)
+    result, detected = await run_in_threadpool(_build_import, image_bytes, body.rows)
+    out = _to_out(result)
+    return ImportOut(**out.model_dump(), detected=detected)
+
+
+# ---------------------------------------------------------------------------
 # Saved models: a finished animated character, kept to be reused
 # ---------------------------------------------------------------------------
 
@@ -412,6 +597,7 @@ def _model_out(model: SpriteModel) -> SpriteModelOut:
         hit_image_url=model.hit_image_url,
         fire_image_url=model.fire_image_url,
         sprite_clips=list(model.sprite_clips or []),
+        sprite_sounds=dict(model.sprite_sounds or {}),
         description=model.description,
         poses=list(model.poses_json or []),
         created_at=model.created_at,
@@ -459,6 +645,7 @@ async def save_model(
         hit_image_url=body.hit_image_url,
         fire_image_url=body.fire_image_url,
         sprite_clips=list(body.sprite_clips),
+        sprite_sounds=dict(body.sprite_sounds),
         description=body.description,
         poses_json=list(body.poses),
     )

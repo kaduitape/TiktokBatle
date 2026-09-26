@@ -15,6 +15,7 @@ import type {
 import { resolveAssetUrl } from "./avatarTexture";
 import {
   buildCharacterObject,
+  setCharacterSoundSink,
   flashAction,
   isAnimated,
   preloadActionArt,
@@ -140,6 +141,7 @@ export default class TankWarScene extends Phaser.Scene {
     this.combos = new ComboManager(this.effects);
     this.feed = new FeedManager(this);
     this.audio = new AudioManager();
+    setCharacterSoundSink((url) => this.audio.playFile(url));
     this.audio.init();
     this.bossBars = new XPManager(this);
 

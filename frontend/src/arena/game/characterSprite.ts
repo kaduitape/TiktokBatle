@@ -21,6 +21,20 @@ export function textureKeyFor(meta: CharacterPayload, url: string | null | undef
   return `char_${meta.id}_${stamp}${suffix}`;
 }
 
+/** Where a character's own movement sounds are played. Each scene points it
+ * at its AudioManager on creation, so the mixer's volume applies and the
+ * animator does not need to know which scene it lives in. */
+let soundSink: ((url: string) => void) | null = null;
+
+export function setCharacterSoundSink(sink: ((url: string) => void) | null): void {
+  soundSink = sink;
+}
+
+function playCharacterSound(meta: CharacterPayload, movement: string): void {
+  const url = meta.sprite_sounds?.[movement];
+  if (url && soundSink) soundSink(url);
+}
+
 /** Reaction art: stills swapped in for a moment when the character does
  * something. `hit` plays when it takes damage, `fire` when it shoots. */
 export type ActionKind = "hit" | "fire";
@@ -100,6 +114,10 @@ export function flashAction(
   kind: ActionKind,
   ms = 320
 ): boolean {
+  // The sound belongs to the movement, not to the art: a character with a
+  // hit sound but no hit drawing still says "ouch".
+  if (sprite.active) playCharacterSound(meta, kind);
+
   const key = actionTextureKey(meta, kind);
   const idle = sprite.getData(IDLE_POSE) as IdlePose | undefined;
   if (!idle || !scene.textures.exists(key) || !sprite.active) return false;
@@ -273,6 +291,8 @@ export function buildCharacterObject(
     Math.max(1, meta.sprite_fps ?? 10),
     {
       gesturesOnly: options.gesturesOnly,
+      sounds: meta.sprite_sounds ?? {},
+      playSound: (url) => soundSink?.(url),
       idleFrame:
         (built.clips.find((clip) => clip.kind === "idle")?.row ?? built.clips[0].row) *
         built.columns,
