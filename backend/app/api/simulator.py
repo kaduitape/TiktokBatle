@@ -171,15 +171,14 @@ async def simulate_join(
     battle = await db.get(Battle, session.battle_id) if session else None
     if session is None or battle is None:
         raise HTTPException(404, "sessão da batalha não encontrada")
-    name = username or (
-        f"{profile.name}_{random.randint(1, 9999)}" if profile else random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999))
-    )
+    name = username or (profile.name if profile else random.choice(_FAKE_USERNAMES) + str(random.randint(1, 9999)))
+    user_id = f"sim-profile-{profile.id}" if profile else f"sim-{name}"
     # An explicit photo wins over the profile's, and the placeholder is only
     # reached when nobody supplied one at all.
     avatar_url = avatar_url or (profile.avatar_url if profile else None) or _placeholder_avatar(name)
     await simulation_provider.simulate_join(
         session_id=session_id,
-        user_id=f"sim-{name}",
+        user_id=user_id,
         username=name,
         nickname=nickname or name,
         avatar_url=avatar_url,
@@ -191,7 +190,7 @@ async def simulate_join(
         word = str(tank.get("team_a_keyword" if team == "A" else "team_b_keyword", team))
         await simulation_provider.simulate_comment(
             session_id=session_id,
-            user_id=f"sim-{name}",
+            user_id=user_id,
             username=name,
             nickname=nickname or name,
             avatar_url=avatar_url,
@@ -209,6 +208,63 @@ def _placeholder_avatar(name: str) -> str:
     it keeps working on a machine with no route to the open internet.
     """
     return f"https://i.pravatar.cc/150?u={name}"
+
+
+class SimulateSocialRequest(BaseModel):
+    session_id: str
+    username: str = "teste"
+    nickname: str | None = None
+    avatar_url: str | None = None
+    profile_id: str | None = None
+    count: int = 1
+
+
+async def _social_identity(
+    db: AsyncSession, body: SimulateSocialRequest
+) -> tuple[str, str, str, str | None]:
+    profile = await db.get(SimulatorProfile, body.profile_id) if body.profile_id else None
+    if body.profile_id and profile is None:
+        raise HTTPException(404, "perfil do simulador não encontrado")
+    name = profile.name if profile else body.username
+    user_id = f"sim-profile-{profile.id}" if profile else f"sim-{name}"
+    nickname = body.nickname or name
+    avatar_url = body.avatar_url or (profile.avatar_url if profile else None)
+    return user_id, name, nickname, avatar_url
+
+
+@router.post("/like")
+async def simulate_like(
+    body: SimulateSocialRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    user_id, name, nickname, avatar_url = await _social_identity(db, body)
+    await simulation_provider.simulate_like(
+        session_id=body.session_id,
+        user_id=user_id,
+        username=name,
+        count=max(1, body.count),
+        nickname=nickname,
+        avatar_url=avatar_url,
+    )
+    return {"ok": True, "username": name, "count": max(1, body.count)}
+
+
+@router.post("/follow")
+async def simulate_follow(
+    body: SimulateSocialRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin),
+):
+    user_id, name, nickname, avatar_url = await _social_identity(db, body)
+    await simulation_provider.simulate_follow(
+        session_id=body.session_id,
+        user_id=user_id,
+        username=name,
+        nickname=nickname,
+        avatar_url=avatar_url,
+    )
+    return {"ok": True, "username": name}
 
 
 @router.post("/comment")
@@ -467,7 +523,7 @@ async def upload_simulator_image(file: UploadFile, _: str = Depends(require_admi
 
 @router.get("/auto")
 async def auto_status(session_id: str, _: str = Depends(require_admin)):
-    return {"session_id": session_id, "running": simulator_autopilot.is_running(session_id)}
+    return simulator_autopilot.status(session_id)
 
 
 @router.post("/auto/start")
@@ -488,8 +544,17 @@ async def start_auto(
     ).scalars().all()
     if body.profile_ids and len(profiles) != len(set(body.profile_ids)):
         raise HTTPException(400, "um ou mais perfis do simulador não existem")
-    await simulator_autopilot.start(body.session_id, profiles)
-    return {"ok": True, "running": True, "profiles": len(profiles)}
+    if not profiles:
+        raise HTTPException(400, "cadastre e selecione pelo menos uma pessoa do simulador")
+    if body.team_a_count + body.team_b_count <= 0:
+        raise HTTPException(400, "escolha pelo menos uma vaga no lado A ou no lado B")
+    status = await simulator_autopilot.start(
+        body.session_id,
+        profiles,
+        body.team_a_count,
+        body.team_b_count,
+    )
+    return {"ok": True, "profiles": len(profiles), **status}
 
 
 @router.post("/auto/stop")

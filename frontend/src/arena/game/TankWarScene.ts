@@ -5,10 +5,12 @@ import type {
   ArmyTotals,
   BossBombMessage,
   CharacterPayload,
+  PlayerFollowedMessage,
   PlayerEnlistedMessage,
   PvpPlayerPayload,
   StateSyncMessage,
   TankShotMessage,
+  TeamHeartMessage,
 } from "../../types/events";
 import { resolveAssetUrl } from "./avatarTexture";
 import {
@@ -24,6 +26,7 @@ import { AudioManager } from "./managers/AudioManager";
 import { ComboManager } from "./managers/ComboManager";
 import { EffectsManager } from "./managers/EffectsManager";
 import { FeedManager } from "./managers/FeedManager";
+import { HealManager } from "./managers/HealManager";
 import { MissileManager } from "./managers/MissileManager";
 import { PvpAvatarManager } from "./managers/PvpAvatarManager";
 import { RankingManager } from "./managers/RankingManager";
@@ -68,6 +71,7 @@ export default class TankWarScene extends Phaser.Scene {
   private soldiers!: PvpAvatarManager;
   private effects!: EffectsManager;
   private missiles!: MissileManager;
+  private heals!: HealManager;
   private combos!: ComboManager;
   private feed!: FeedManager;
   private audio!: AudioManager;
@@ -132,6 +136,7 @@ export default class TankWarScene extends Phaser.Scene {
     });
     this.effects = new EffectsManager(this);
     this.missiles = new MissileManager(this, this.effects);
+    this.heals = new HealManager(this, this.effects);
     this.combos = new ComboManager(this.effects);
     this.feed = new FeedManager(this);
     this.audio = new AudioManager();
@@ -237,6 +242,12 @@ export default class TankWarScene extends Phaser.Scene {
         break;
       case "boss_bomb":
         this.handleBossBomb(msg as BossBombMessage);
+        break;
+      case "team_heart":
+        this.handleTeamHeart(msg as TeamHeartMessage);
+        break;
+      case "player_followed":
+        this.handleFollow(msg as PlayerFollowedMessage);
         break;
       case "battle_restarted":
         this.victoryShown = false;
@@ -527,6 +538,53 @@ export default class TankWarScene extends Phaser.Scene {
       // shell is still in the air -- let it land before celebrating.
       this.time.delayedCall(600, () => this.showVictory(msg.winner_side as string));
     }
+  }
+
+  private async handleTeamHeart(msg: TeamHeartMessage) {
+    const boss = this.gunners[msg.target_side];
+    if (!boss || msg.player.queued) return;
+    const soldier = await this.soldiers.spawnOrGet(
+      msg.player,
+      this.teamColors[msg.player.team],
+      true,
+    );
+    const target = { x: boss.sprite.x, y: boss.sprite.y };
+    this.heals.fireHeal(
+      soldier.sprite.x,
+      soldier.sprite.y,
+      target.x,
+      target.y,
+      msg.count >= 10,
+      () => {
+        this.bossBars.update(msg.xp.a, msg.xp.b);
+        this.effects.floatingNumber(target.x, target.y - 60, `+${Math.round(msg.heal)}`, "#66ffb2");
+      },
+    );
+    this.audio.heal();
+    const name = (msg.player.nickname || msg.player.username).toUpperCase();
+    this.feed.push(`\u2764\uFE0F ${name} curou ${this.teamNames[msg.target_side]} em ${Math.round(msg.heal)}`);
+  }
+
+  private async handleFollow(msg: PlayerFollowedMessage) {
+    if (msg.player.queued) return;
+    const soldier = await this.soldiers.spawnOrGet(
+      msg.player,
+      this.teamColors[msg.player.team],
+      true,
+    );
+    this.soldiers.setPower(msg.player.user_id, msg.power);
+    this.soldiers.growOnFollow(msg.player.user_id);
+    this.effects.hearts(soldier.sprite.x, soldier.sprite.y, 8);
+    this.effects.floatingNumber(
+      soldier.sprite.x,
+      soldier.sprite.y - soldier.diameter / 2 - 34,
+      "3× VIDA",
+      "#ff7aa8",
+    );
+    const name = (msg.player.nickname || msg.player.username).toUpperCase();
+    this.effects.bannerText(`${name} SEGUIU E FICOU MAIOR!`, ARENA_WIDTH / 2, 650, "#ff7aa8", 30);
+    this.feed.push(`\u2764\uFE0F ${name} seguiu — vida ${Math.round(msg.power)}`);
+    if (msg.armies) this.updateArmies(msg.armies);
   }
 
   /** The boss retaliating: a bomb lobbed over the divider onto one active

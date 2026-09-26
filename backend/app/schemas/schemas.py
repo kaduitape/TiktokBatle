@@ -295,6 +295,11 @@ class SimulatorAutoStartIn(BaseModel):
     # Empty means every saved simulator profile. This keeps the usual case
     # simple while still allowing a presenter to test just selected faces.
     profile_ids: list[str] = Field(default_factory=list)
+    # These are quotas, not instructions to clone profiles. A saved person is
+    # consumed at most once across both sides; if the selected pool is smaller
+    # than the two quotas, the simulator simply stops adding newcomers.
+    team_a_count: int = Field(default=4, ge=0, le=500)
+    team_b_count: int = Field(default=4, ge=0, le=500)
 
 
 class BattleBackgroundIn(BaseModel):

@@ -64,21 +64,26 @@ interface Character {
   [key: string]: unknown;
 }
 
-// A walk-cycle-ish loop that works for almost any caricature, so the page is
-// useful before the admin writes a single pose of their own.
+// A quiet idle loop is the safest default for a character that spends most of
+// the battle standing still. Feet, camera and scale stay fixed; only breathing,
+// eyes and a small weight shift move.
 /** Transparent-background preview backdrop. */
 const CHECKER = "repeating-conic-gradient(#2a2a3a 0% 25%, #1b1b28 0% 50%) 50% / 24px 24px";
 
 const DEFAULT_POSES = [
-  "braços abaixados ao lado do corpo, boca fechada, expressão neutra",
-  "braço direito a meio caminho, subindo, boca levemente aberta",
-  "braço direito levantado na altura do ombro, boca aberta falando",
-  "braço direito a meio caminho, descendo, boca levemente aberta",
+  "parado em repouso, os dois pés plantados e imóveis, braços relaxados, olhos abertos, respiração neutra",
+  "mesma postura e mesmos pés, inspirando de leve: peito e ombros sobem apenas um pouco, mãos quase imóveis",
+  "mesma postura e mesma escala, expirando: peito e ombros voltam ao neutro, olhos começando a piscar",
+  "mesmos pés e enquadramento, olhos abertos novamente e peso deslocado muito levemente, pronto para voltar ao primeiro quadro",
 ];
 
 /** Ready-made loops. Each one is written so the last pose flows back into the
  * first, which is what keeps the animation from jumping when it repeats. */
 const POSE_PRESETS: { label: string; poses: string[] }[] = [
+  {
+    label: "🫁 Parado vivo",
+    poses: DEFAULT_POSES,
+  },
   {
     label: "🕺 Dançando",
     poses: [
@@ -90,7 +95,12 @@ const POSE_PRESETS: { label: string; poses: string[] }[] = [
   },
   {
     label: "🗣️ Falando",
-    poses: DEFAULT_POSES,
+    poses: [
+      "os dois pés plantados, braços abaixados, boca fechada, expressão atenta",
+      "mesmos pés e escala, uma mão sobe só até a cintura, boca começando a abrir",
+      "mesmos pés e escala, a mão chega à altura do peito, boca aberta falando",
+      "mesmos pés e escala, a mão desce até a cintura, boca quase fechada para voltar ao início",
+    ],
   },
   {
     label: "🎉 Comemorando",
@@ -522,11 +532,10 @@ export default function SpriteStudio() {
 
         {current && !current.supports_transparency && (
           <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 10px" }}>
-            Este serviço não tem botão de fundo transparente, então costuma devolver o
-            personagem sobre um fundo liso. <strong>O sistema recorta esse fundo sozinho</strong>{" "}
-            — o recorte começa pela borda, então branco de dentro do personagem não some.
-            Se a arte vier sobre um cenário (não um fundo liso), aí o recorte não é feito e a
-            prévia mostra o fundo: nesse caso gere pela OpenAI, que tem o recurso de verdade.
+            Este serviço não tem transparência real. Por isso o sistema agora pede um
+            <strong> fundo verde de recorte</strong> e o remove depois, inclusive nos vãos
+            entre braços, pernas e acessórios. Se o serviço devolver branco mesmo assim, o
+            recorte fica conservador para não apagar barba, roupa ou olhos claros.
           </p>
         )}
 
@@ -772,6 +781,10 @@ export default function SpriteStudio() {
                 alt="folha de sprites gerada"
                 style={{ maxWidth: "100%", background: CHECKER, borderRadius: 6 }}
               />
+              <p style={{ color: "#9a9ac0", fontSize: 12, margin: "6px 0 0" }}>
+                O xadrez escuro serve apenas para mostrar a transparência na prévia; ele não
+                faz parte do PNG.
+              </p>
               <p style={{ fontSize: 13, marginTop: 10 }}>
                 {sheet.columns} coluna(s) × {sheet.rows} linha(s) — {sheet.frame_count} quadros de{" "}
                 {sheet.frame_width}×{sheet.frame_height} px

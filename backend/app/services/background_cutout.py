@@ -37,6 +37,14 @@ MAX_ERASED_FRACTION = 0.92
 #: there is no flat background to cut.
 MIN_BORDER_AGREEMENT = 0.6
 
+SOFT_TOLERANCE_EXTRA = 18
+
+# A saturated chroma background is deliberately absent from the character, so
+# every matching pixel can safely go -- including enclosed gaps between arms,
+# legs or tentacles. Neutral white/grey backgrounds need the conservative
+# border flood because the character may itself contain white hair or clothes.
+CHROMA_SATURATION_MIN = 64
+
 
 def already_transparent(image: Image.Image) -> bool:
     """True when the drawing arrived with real transparency of its own."""
@@ -48,7 +56,7 @@ def already_transparent(image: Image.Image) -> bool:
     return bool((alpha < 16).mean() > 0.05)
 
 
-def _border_colour(rgb: np.ndarray) -> tuple[np.ndarray, float]:
+def _border_colour(rgb: np.ndarray, tolerance: int) -> tuple[np.ndarray, float]:
     """The colour the frame's edge is made of, and how much of it agrees."""
     h, w, _ = rgb.shape
     band = max(1, min(h, w) // 100)
@@ -62,7 +70,7 @@ def _border_colour(rgb: np.ndarray) -> tuple[np.ndarray, float]:
     )
     # The median is steadier than the mean when a corner clips the character.
     colour = np.median(border, axis=0)
-    close = np.abs(border.astype(np.int16) - colour).max(axis=1) <= DEFAULT_TOLERANCE
+    close = np.abs(border.astype(np.int16) - colour).max(axis=1) <= tolerance
     return colour, float(close.mean())
 
 
@@ -78,7 +86,6 @@ def _flood_from_border(similar: np.ndarray) -> np.ndarray:
 
     def seed(y: int, x: int) -> None:
         if similar[y, x] and not reached[y, x]:
-            reached[y, x] = True
             queue.append((y, x))
 
     for x in range(w):
@@ -93,14 +100,18 @@ def _flood_from_border(similar: np.ndarray) -> np.ndarray:
     # instead of millions of single-pixel steps.
     while queue:
         y, x = queue.popleft()
-        left = x
-        while left > 0 and similar[y, left - 1] and not reached[y, left - 1]:
-            left -= 1
-            reached[y, left] = True
-        right = x
-        while right < w - 1 and similar[y, right + 1] and not reached[y, right + 1]:
-            right += 1
-            reached[y, right] = True
+        if reached[y, x] or not similar[y, x]:
+            continue
+
+        # Finding both ends with NumPy replaces two Python pixel-by-pixel
+        # loops. On a 1024x1536 provider frame that cuts several seconds from
+        # every generated pose while producing the same connected component.
+        row = similar[y]
+        before = np.flatnonzero(~row[:x])
+        after = np.flatnonzero(~row[x + 1 :])
+        left = int(before[-1] + 1) if before.size else 0
+        right = int(x + after[0]) if after.size else w - 1
+        reached[y, left : right + 1] = True
         for ny in (y - 1, y + 1):
             if not (0 <= ny < h):
                 continue
@@ -113,7 +124,6 @@ def _flood_from_border(similar: np.ndarray) -> np.ndarray:
             starts = np.flatnonzero(run & ~np.concatenate(([False], run[:-1])))
             for offset in starts:
                 nx = left + int(offset)
-                reached[ny, nx] = True
                 queue.append((ny, nx))
     return reached
 
@@ -132,13 +142,26 @@ def cut_out(image: Image.Image, tolerance: int = DEFAULT_TOLERANCE) -> tuple[Ima
     array = np.asarray(rgba).copy()
     rgb = array[:, :, :3]
 
-    colour, agreement = _border_colour(rgb)
+    colour, agreement = _border_colour(rgb, tolerance)
     if agreement < MIN_BORDER_AGREEMENT:
         logger.info("fundo não removido: a borda não é de uma cor só (%.0f%%)", agreement * 100)
         return rgba, False
 
-    similar = np.abs(rgb.astype(np.int16) - colour).max(axis=2) <= tolerance
-    background = _flood_from_border(similar)
+    distance = np.abs(rgb.astype(np.int16) - colour).max(axis=2)
+    # Include the soft fringe around a flat background. Never bridge across the
+    # foreground: that used to let a white flood jump over the outline and eat
+    # pieces of beards, eyes and pale clothes.
+    similar = distance <= (tolerance + SOFT_TOLERANCE_EXTRA)
+    saturation = float(colour.max() - colour.min())
+    if saturation >= CHROMA_SATURATION_MIN:
+        # Chroma key can be removed globally, so curled limbs do not trap green
+        # islands that later appear as solid patches in the arena.
+        background = similar
+    else:
+        # White/grey may also be part of the subject. Only erase what is truly
+        # connected to the outside; preserving a beard is more important than
+        # guessing at an enclosed white region.
+        background = _flood_from_border(similar)
 
     erased = float(background.mean())
     if erased > MAX_ERASED_FRACTION:

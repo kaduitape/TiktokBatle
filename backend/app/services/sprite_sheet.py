@@ -9,12 +9,37 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+from math import sqrt
+from statistics import median
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 # Safe texture limit for the GPUs that run OBS. Past this some cards refuse
 # the texture outright and the character silently disappears.
 MAX_SIDE = 4096
+ALPHA_BBOX_THRESHOLD = 16
+MIN_NORMALIZE_SCALE = 0.65
+MAX_NORMALIZE_SCALE = 2.6
+
+
+def _content_mask(image: Image.Image) -> Image.Image:
+    """A stable silhouette for trimming and scale measurement.
+
+    Generated cutouts sometimes retain one or two distant semi-opaque dots.
+    Measuring the raw alpha then treats the whole provider canvas as content,
+    which is how one character remained tiny inside an otherwise full cell.
+    A tiny morphological opening removes those dots from the *measurement*
+    without modifying hair, props or any pixels in the delivered artwork.
+    """
+    visible = image.getchannel("A").point(
+        lambda alpha: 255 if alpha >= ALPHA_BBOX_THRESHOLD else 0
+    )
+    stable = visible.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    return stable if stable.getbbox() else visible
+
+
+def _visible_area(image: Image.Image) -> int:
+    return max(1, _content_mask(image).histogram()[255])
 
 
 @dataclass
@@ -89,11 +114,48 @@ def _compose(
             trimmed.append(None)
             continue
         img = frame.convert("RGBA")
-        trimmed.append(img.crop(img.getbbox() or (0, 0, img.width, img.height)))
+        # getbbox() treats an alpha value of 1 as real content. Image models
+        # often leave a haze or a few almost-transparent pixels at the edge;
+        # including those makes the whole canvas the bounding box and the
+        # actual character looks much smaller in that frame.
+        visible = _content_mask(img)
+        trimmed.append(img.crop(visible.getbbox() or (0, 0, img.width, img.height)))
 
     drawn = [f for f in trimmed if f is not None]
     if not drawn:
         raise ValueError("nenhuma pose para montar")
+
+    if cell is None and len(drawn) > 1:
+        # Normalise camera zoom by foreground area, not bounding-box height.
+        # A crouch is shorter but contains roughly the same amount of character;
+        # a genuinely zoomed-out frame is smaller in both dimensions. Height
+        # alone confused wide tentacle/arm poses with deliberate small figures.
+        visible_areas = [_visible_area(frame) for frame in drawn]
+        target_area = float(median(visible_areas))
+        normalised: list[Image.Image | None] = []
+        for frame in trimmed:
+            if frame is None:
+                normalised.append(None)
+                continue
+            visible_area = _visible_area(frame)
+            scale = max(
+                MIN_NORMALIZE_SCALE,
+                min(MAX_NORMALIZE_SCALE, sqrt(target_area / visible_area)),
+            )
+            if abs(scale - 1.0) < 0.01:
+                normalised.append(frame)
+            else:
+                normalised.append(
+                    frame.resize(
+                        (
+                            max(1, round(frame.width * scale)),
+                            max(1, round(frame.height * scale)),
+                        ),
+                        Image.LANCZOS,
+                    )
+                )
+        trimmed = normalised
+        drawn = [frame for frame in trimmed if frame is not None]
 
     cell_w, cell_h = cell or (max(f.width for f in drawn), max(f.height for f in drawn))
     columns = max(1, columns)

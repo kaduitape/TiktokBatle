@@ -44,6 +44,18 @@ interface SimulatorProfile {
   avatar_url: string;
 }
 
+interface AutoStatus {
+  session_id: string;
+  running: boolean;
+  team_a_limit?: number;
+  team_b_limit?: number;
+  team_a_joined?: number;
+  team_b_joined?: number;
+  pending?: number;
+  profiles_exhausted?: boolean;
+  shortfall?: number;
+}
+
 export default function Simulator() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [active, setActive] = useState<ActiveBattle | null>(null);
@@ -68,6 +80,9 @@ export default function Simulator() {
   const [profileName, setProfileName] = useState("");
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
+  const [autoStatus, setAutoStatus] = useState<AutoStatus | null>(null);
+  const [teamACount, setTeamACount] = useState(4);
+  const [teamBCount, setTeamBCount] = useState(4);
   const [arenaBackground, setArenaBackground] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogGift[]>([]);
   const [catalogPick, setCatalogPick] = useState("");
@@ -156,10 +171,27 @@ export default function Simulator() {
 
   useEffect(() => {
     if (!active?.session.id) return;
-    api
-      .get<{ running: boolean }>(`/api/simulator/auto?session_id=${encodeURIComponent(active.session.id)}`)
-      .then((status) => setAutoRunning(status.running))
-      .catch(() => setAutoRunning(false));
+    let cancelled = false;
+    const loadStatus = () => api
+      .get<AutoStatus>(`/api/simulator/auto?session_id=${encodeURIComponent(active.session.id)}`)
+      .then((status) => {
+        if (cancelled) return;
+        setAutoStatus(status);
+        setAutoRunning(status.running);
+        if (status.running) {
+          if (status.team_a_limit !== undefined) setTeamACount(status.team_a_limit);
+          if (status.team_b_limit !== undefined) setTeamBCount(status.team_b_limit);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAutoRunning(false);
+      });
+    void loadStatus();
+    const timer = window.setInterval(loadStatus, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [active?.session.id]);
 
   const startPicked = () => run(async () => {
@@ -195,6 +227,33 @@ export default function Simulator() {
     if (profileId) query.set("profile_id", profileId);
     const result = await api.post<{ username: string; team: string | null }>(`/api/simulator/join?${query}`);
     pushLog(`${result.username} entrou${result.team ? ` no time ${result.team}` : ""} em ${target.name}`);
+  });
+
+  const simulateLike = () => run(async () => {
+    const target = await targetSession();
+    if (!target) return;
+    const result = await api.post<{ username: string; count: number }>("/api/simulator/like", {
+      session_id: target.id,
+      username,
+      avatar_url: avatarUrl || undefined,
+      profile_id: selectedProfiles[0] || undefined,
+      count: quantity,
+    });
+    pushLog(`${result.username} mandou ${result.count} ${result.count === 1 ? "coração" : "corações"} para o próprio time`);
+    refreshAfterEvent();
+  });
+
+  const simulateFollow = () => run(async () => {
+    const target = await targetSession();
+    if (!target) return;
+    const result = await api.post<{ username: string }>("/api/simulator/follow", {
+      session_id: target.id,
+      username,
+      avatar_url: avatarUrl || undefined,
+      profile_id: selectedProfiles[0] || undefined,
+    });
+    pushLog(`${result.username} seguiu: avatar maior e vida triplicada`);
+    refreshAfterEvent();
   });
 
   /** Section 15: no separate path for the simulator. This sends the gift
@@ -294,9 +353,18 @@ export default function Simulator() {
   const startAuto = () => run(async () => {
     const target = await targetSession();
     if (!target) return;
-    await api.post("/api/simulator/auto/start", { session_id: target.id, profile_ids: selectedProfiles });
-    setAutoRunning(true);
-    pushLog(`Simulação contínua ligada em ${target.name}.`);
+    const status = await api.post<AutoStatus & { profiles: number }>("/api/simulator/auto/start", {
+      session_id: target.id,
+      profile_ids: selectedProfiles,
+      team_a_count: teamACount,
+      team_b_count: teamBCount,
+    });
+    setAutoStatus(status);
+    setAutoRunning(status.running);
+    pushLog(
+      `Simulação ligada em ${target.name}: até ${teamACount} no lado A e ${teamBCount} no lado B.` +
+      (status.shortfall ? ` Faltam ${status.shortfall} perfil(is); ela vai parar de preencher quando acabarem.` : ""),
+    );
   });
 
   const stopAuto = () => run(async () => {
@@ -304,6 +372,7 @@ export default function Simulator() {
     if (!sessionId) return;
     await api.post(`/api/simulator/auto/stop?session_id=${encodeURIComponent(sessionId)}`);
     setAutoRunning(false);
+    setAutoStatus({ session_id: sessionId, running: false });
     pushLog("Simulação contínua pausada.");
   });
 
@@ -397,12 +466,58 @@ export default function Simulator() {
 
       <div className="card">
         <h3>Simulação contínua</h3>
-        <p style={{ color: "#9a9ac0", fontSize: 13 }}>Faz perfis entrarem e atacarem de forma aleatória, com pausas curtas como em uma LIVE. Na Guerra de Tanques eles também enviam o comentário que escolhe o time.</p>
-        <div className="row">
+        <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+          Cada pessoa selecionada entra uma única vez e fica sempre no mesmo lado. Se as vagas
+          pedidas forem maiores que os perfis disponíveis, o simulador para de preencher quando
+          acabarem — ele nunca repete alguém no time normal ou no adversário.
+        </p>
+        <div className="row" style={{ alignItems: "flex-end", marginBottom: 12 }}>
+          <div>
+            <label>Máximo no lado A</label>
+            <input
+              type="number"
+              min={0}
+              max={500}
+              value={teamACount}
+              disabled={autoRunning}
+              onChange={(event) => setTeamACount(Math.max(0, Math.min(500, Number(event.target.value))))}
+              style={{ width: 120 }}
+            />
+          </div>
+          <div>
+            <label>Máximo no lado B</label>
+            <input
+              type="number"
+              min={0}
+              max={500}
+              value={teamBCount}
+              disabled={autoRunning}
+              onChange={(event) => setTeamBCount(Math.max(0, Math.min(500, Number(event.target.value))))}
+              style={{ width: 120 }}
+            />
+          </div>
+          <span style={{ color: "#9a9ac0", fontSize: 12, paddingBottom: 8 }}>
+            {selectedProfiles.length} perfil(is) selecionado(s) para {teamACount + teamBCount} vaga(s)
+          </span>
+        </div>
+        {teamACount + teamBCount > selectedProfiles.length && (
+          <p style={{ color: "#fbbf24", fontSize: 12, marginTop: 0 }}>
+            Há menos pessoas que vagas. Serão usados só os {selectedProfiles.length} perfis selecionados, sem repetir ninguém.
+          </p>
+        )}
+        <div className="row" style={{ alignItems: "center" }}>
           {autoRunning
             ? <button className="secondary" onClick={stopAuto} disabled={busy || !session}>⏸ Parar simulação</button>
-            : <button onClick={startAuto} disabled={busy || !pick}>▶ Iniciar simulação realista</button>}
+            : <button onClick={startAuto} disabled={busy || !pick || selectedProfiles.length === 0 || teamACount + teamBCount === 0}>▶ Iniciar simulação realista</button>}
           <span className="pill" style={{ color: autoRunning ? "#86efac" : undefined }}>{autoRunning ? "ATIVA" : "PAUSADA"}</span>
+          {autoRunning && autoStatus?.team_a_joined !== undefined && (
+            <>
+              <span className="pill">A: {autoStatus.team_a_joined}/{autoStatus.team_a_limit}</span>
+              <span className="pill">B: {autoStatus.team_b_joined}/{autoStatus.team_b_limit}</span>
+              <span className="pill">Aguardando entrada: {autoStatus.pending ?? 0}</span>
+            </>
+          )}
+          {autoRunning && autoStatus?.profiles_exhausted && <span style={{ color: "#fbbf24", fontSize: 12 }}>Perfis esgotados; nenhum novo usuário será criado.</span>}
         </div>
       </div>
 
@@ -418,6 +533,9 @@ export default function Simulator() {
 
       <div className="card">
         <h3>Simular presente</h3>
+        <p style={{ color: "#9a9ac0", fontSize: 13 }}>
+          Curtida e follow valem para quem já entrou na batalha. O follow só triplica a vida uma vez por pessoa.
+        </p>
         <div className="form-grid">
           <div>
             <label>Usuário</label><input value={username} onChange={(event) => setUsername(event.target.value)} />
@@ -434,6 +552,8 @@ export default function Simulator() {
         <div className="row" style={{ marginTop: 14 }}>
           <button onClick={simulateGift} disabled={busy || !pick || !giftKey}>SIMULAR PRESENTE</button>
           <button className="secondary" onClick={simulateJoin} disabled={busy || !pick}>Simular novo espectador</button>
+          <button className="secondary" onClick={simulateLike} disabled={busy || !pick}>Simular coração/curtida</button>
+          <button className="secondary" onClick={simulateFollow} disabled={busy || !pick}>Simular follow (3× vida)</button>
         </div>
       </div>
 

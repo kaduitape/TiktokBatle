@@ -87,6 +87,7 @@ async def build_state_sync(session_id: str) -> dict | None:
                     "kills": p.kills,
                     "eliminated": p.eliminated,
                     "queued": p.queued,
+                    "followed": p.followed,
                 }
                 for p in visible_players
             ],

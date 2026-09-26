@@ -44,6 +44,8 @@ export interface PlayerPayload {
   avatar_url: string | null;
   team: "A" | "B";
   created?: boolean;
+  /** This viewer already received the one-time follow boost this round. */
+  followed?: boolean;
 }
 
 export interface PvpPlayerPayload extends PlayerPayload {
@@ -226,6 +228,31 @@ export interface BossBombMessage {
   promoted: PvpPlayerPayload | null;
 }
 
+export interface TeamHeartMessage {
+  type: "team_heart";
+  session_id: string;
+  player: PvpPlayerPayload;
+  count: number;
+  target_side: "A" | "B";
+  /** Life actually restored after clamping at the maximum. */
+  heal: number;
+  xp: { a: number; b: number };
+  xp_max: { a: number; b: number };
+  /** Present in team PvP, where the viewer is the healed character. */
+  teams: TeamTotals | null;
+}
+
+export interface PlayerFollowedMessage {
+  type: "player_followed";
+  session_id: string;
+  player: PvpPlayerPayload;
+  previous_power: number;
+  power: number;
+  multiplier: number;
+  teams: TeamTotals | null;
+  armies: ArmyTotals | null;
+}
+
 export type ArenaMessage =
   | StateSyncMessage
   | AttackMessage
@@ -237,4 +264,6 @@ export type ArenaMessage =
   | PvpCombatMessage
   | PlayerEnlistedMessage
   | TankShotMessage
-  | BossBombMessage;
+  | BossBombMessage
+  | TeamHeartMessage
+  | PlayerFollowedMessage;

@@ -34,6 +34,8 @@ const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   shadow: { offsetX: 0, offsetY: 2, color: "#000000", blur: 4, fill: true },
 };
 
+const FOLLOW_SIZE_FACTOR = 1.35;
+
 /** Long handles would cover half the arena; trim rather than shrink, so every
  * name stays the same readable size. */
 function displayName(player: PlayerPayload): string {
@@ -68,31 +70,34 @@ export class AvatarManager {
       // avatar and the gift event carries one, or an admin registers a photo
       // for somebody already on screen. Returning the existing entry without
       // looking at the picture meant that photo never appeared.
+      const newlyFollowed = !!player.followed && !existing.player.followed;
       await this.refreshTexture(existing, player, teamColor);
+      if (newlyFollowed) this.markFollowed(player.user_id);
       return existing;
     }
 
     const letter = (player.nickname || player.username || "?")[0]?.toUpperCase() || "?";
     const textureKey = await bakeAvatarTexture(this.scene, player.avatar_url, teamColor, letter, AVATAR_DIAMETER, player.username);
 
+    const diameter = player.followed ? AVATAR_DIAMETER * FOLLOW_SIZE_FACTOR : AVATAR_DIAMETER;
     const zone = player.team === "A" ? SIDE_A_ZONE : SIDE_B_ZONE;
-    const x = Phaser.Math.Between(zone.xMin + AVATAR_DIAMETER, zone.xMax - AVATAR_DIAMETER);
+    const x = Phaser.Math.Between(zone.xMin + diameter, zone.xMax - diameter);
     const y = dropIn ? SPAWN_TOP_Y : Phaser.Math.Between(CEILING_Y, arenaLayout.floorY - 200);
 
     const sprite = this.scene.matter.add.sprite(x, y, textureKey, undefined, {
-      shape: { type: "circle", radius: AVATAR_DIAMETER / 2 },
+      shape: { type: "circle", radius: diameter / 2 },
       restitution: 0.45,
       friction: 0.15,
       frictionAir: 0.012,
       density: 0.0018,
     });
-    sprite.setDisplaySize(AVATAR_DIAMETER, AVATAR_DIAMETER);
+    sprite.setDisplaySize(diameter, diameter);
     sprite.setBounce(0.4);
     sprite.setFixedRotation();
     sprite.setDepth(20);
 
     const label = this.scene.add
-      .text(x, y + AVATAR_DIAMETER / 2 + 4, displayName(player), NAME_STYLE)
+      .text(x, y + diameter / 2 + 4, displayName(player), NAME_STYLE)
       .setOrigin(0.5, 0)
       .setDepth(22);
 
@@ -150,7 +155,8 @@ export class AvatarManager {
     // The avatar may have been removed while the texture was baking.
     if (!this.avatars.has(player.user_id)) return;
     entry.body.setTexture(textureKey);
-    entry.body.setDisplaySize(AVATAR_DIAMETER, AVATAR_DIAMETER);
+    const diameter = player.followed ? AVATAR_DIAMETER * FOLLOW_SIZE_FACTOR : AVATAR_DIAMETER;
+    entry.body.setDisplaySize(diameter, diameter);
     entry.player = player;
   }
 
@@ -173,6 +179,32 @@ export class AvatarManager {
       scale: 1.6,
       duration: 260,
       onComplete: () => flash.destroy(),
+    });
+  }
+
+  /** Follow growth lasts for the whole round; unlike a gift's giant effect it
+   * has no timeout and its Matter circle grows with the artwork. */
+  markFollowed(userId: string) {
+    const entry = this.avatars.get(userId);
+    if (!entry) return;
+    entry.player = { ...entry.player, followed: true };
+    const target = AVATAR_DIAMETER * FOLLOW_SIZE_FACTOR;
+    const body = entry.body.body as MatterJS.BodyType | undefined;
+    if (body) {
+      const currentRadius = (body as any).circleRadius || entry.body.displayWidth / 2;
+      const factor = target / 2 / currentRadius;
+      if (Number.isFinite(factor) && factor > 0) {
+        this.scene.matter.body.scale(body, factor, factor);
+        (body as any).circleRadius = target / 2;
+      }
+    }
+    entry.body.setDisplaySize(target, target);
+    this.scene.tweens.add({
+      targets: entry.body,
+      scale: entry.body.scale * 1.16,
+      duration: 150,
+      yoyo: true,
+      ease: "Back.easeOut",
     });
   }
 

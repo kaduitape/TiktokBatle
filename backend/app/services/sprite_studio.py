@@ -34,12 +34,48 @@ DEFAULT_SIZE = "1024x1536"
 # once here and appended to every prompt, so the admin only describes the
 # character and the poses.
 STYLE_RULES = (
-    "full body, head to feet, facing the camera, "
-    "centered in frame with the feet at the bottom edge, "
-    "completely transparent background, no ground shadow, no scenery, "
-    "flat even lighting, consistent cartoon caricature style, "
-    "the character must fill the same amount of the frame in every image"
+    "one isolated full-body character, head to feet, facing the camera, "
+    "centered on the exact same canvas with the feet on the same baseline, "
+    "no ground, no cast shadow and no scenery, flat even lighting and consistent "
+    "cartoon caricature style. Lock the camera: "
+    "no crop, no zoom, no change of head size, body proportions or line thickness. "
+    "The character bounding box must occupy 82 percent of the canvas height in every "
+    "frame, with exactly the same head-to-foot scale as the reference"
 )
+
+
+def _style_rules(provider: ImageProvider, description: str = "") -> str:
+    """Ask for a background the selected service can actually deliver.
+
+    A white card cannot be safely keyed when the character has white hair or
+    clothes. Providers without an alpha switch therefore get a vivid chroma
+    background that is deliberately forbidden in the subject; the local
+    cutout can then remove even enclosed gaps without guessing at semantics.
+    """
+    if provider.supports_transparency:
+        background = (
+            "Use a genuinely transparent RGBA background, including every gap "
+            "between arms, body, legs, hair and accessories; no matte color."
+        )
+    else:
+        description_lower = description.casefold()
+        pink_words = ("magenta", "pink", "rosa", "roxo", "purple", "violeta")
+        if any(word in description_lower for word in pink_words):
+            chroma_name, chroma_hex = "green", "#00FF00"
+        else:
+            # Magenta is a safer default for this project than green: team and
+            # country mascots frequently wear green, while exact neon magenta
+            # is rare and remains far from natural red/pink skin tones.
+            chroma_name, chroma_hex = "magenta", "#FF00FF"
+        background = (
+            f"Use one perfectly flat, solid chroma-key {chroma_name} background "
+            f"({chroma_hex}) from "
+            "edge to edge, visible through every gap between limbs and accessories. "
+            "No gradient, texture, halo or shadow on the background. Do not use the exact "
+            f"chroma color {chroma_hex} on the character. Never use white, grey or "
+            "checkerboard as background."
+        )
+    return f"{STYLE_RULES}. {background}"
 
 
 class SpriteStudioError(ImageProviderError):
@@ -147,15 +183,19 @@ def _as_png(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
-def _edit_instruction(instruction: str) -> str:
+def _edit_instruction(instruction: str, style_rules: str) -> str:
     """The whole trick: identity comes from the reference, not from the words."""
     return (
-        "Keep the exact same character, art style, colors, size and framing "
-        f"as the reference image. Change only this: {instruction}. {STYLE_RULES}"
+        "Treat the reference as a locked character model sheet. Keep the exact same "
+        "identity, clothes, colors, proportions, outline, canvas size, scale and framing. "
+        "Do not redesign, zoom or crop the character. "
+        f"Change only this: {instruction}. {style_rules}"
     )
 
 
-def _cycle_instruction(pose: str, index: int, total: int, looping: bool) -> str:
+def _cycle_instruction(
+    pose: str, index: int, total: int, looping: bool, style_rules: str
+) -> str:
     """A frame described as part of a movement instead of on its own.
 
     Asking for four unrelated poses gets four unrelated drawings, and playing
@@ -173,8 +213,11 @@ def _cycle_instruction(pose: str, index: int, total: int, looping: bool) -> str:
     )
     return _edit_instruction(
         f"this is {where} of one continuous movement. {flow} "
-        f"The body is caught in the middle of moving, never standing still or "
-        f"posing for the camera. In this frame: {pose}"
+        "Use a real in-between keyframe, changing only the body parts named below. "
+        "For an idle animation, keep both feet planted and use subtle breathing, "
+        "blinking or weight shifts instead of a large gesture. "
+        f"In this frame: {pose}",
+        style_rules,
     )
 
 
@@ -260,6 +303,7 @@ async def generate_artwork(
     provider_name = await resolve_provider()
     key = await _require_key(provider_name)
     provider: ImageProvider = build(provider_name, key)
+    style_rules = _style_rules(provider, description)
     if size == DEFAULT_SIZE:
         # Each service accepts a different frame size; honour an explicit
         # choice but fall back to whatever this one actually takes.
@@ -301,7 +345,7 @@ async def generate_artwork(
             first = _clean(
                 await provider.generate(
                     client,
-                    f"{description.strip()}. {STYLE_RULES}. Pose: {opening}",
+                    f"{description.strip()}. {style_rules}. Pose: {opening}",
                     size,
                 ),
                 provider,
@@ -319,7 +363,9 @@ async def generate_artwork(
                     await provider.edit(
                         client,
                         reference_png,
-                        _cycle_instruction(pose, index, len(poses), looping=True),
+                        _cycle_instruction(
+                            pose, index, len(poses), looping=True, style_rules=style_rules
+                        ),
                         size,
                     ),
                     provider,
@@ -340,7 +386,11 @@ async def generate_artwork(
                             client,
                             reference_png,
                             _cycle_instruction(
-                                pose, position, len(gesture.poses), looping=False
+                                pose,
+                                position,
+                                len(gesture.poses),
+                                looping=False,
+                                style_rules=style_rules,
                             ),
                             size,
                         ),
@@ -359,7 +409,8 @@ async def generate_artwork(
                     reference_png,
                     _edit_instruction(
                         "the character is being hit and hurt right now: recoiling backwards, "
-                        "face twisted in pain, eyes squeezed shut, arms thrown up defensively"
+                        "face twisted in pain, eyes squeezed shut, arms thrown up defensively",
+                        style_rules,
                     ),
                     size,
                 ), provider)
@@ -373,7 +424,8 @@ async def generate_artwork(
                     reference_png,
                     _edit_instruction(
                         "the character is attacking right now: throwing a bomb with one arm "
-                        "stretched out, leaning forward, determined shouting expression"
+                        "stretched out, leaning forward, determined shouting expression",
+                        style_rules,
                     ),
                     size,
                 ), provider)

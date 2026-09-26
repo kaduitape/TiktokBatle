@@ -1,12 +1,14 @@
 import Phaser from "phaser";
 import type {
   ArenaMessage,
+  PlayerFollowedMessage,
   PlayerJoinedMessage,
   PvpCombatMessage,
   PvpGiftMessage,
   PvpPlayerPayload,
   StateSyncMessage,
   TeamTotals,
+  TeamHeartMessage,
 } from "../../types/events";
 import { resolveAssetUrl } from "./avatarTexture";
 import { setBackground } from "./characterSprite";
@@ -163,6 +165,12 @@ export default class TeamBattleScene extends Phaser.Scene {
       case "pvp_combat":
         this.handleCombat(msg as PvpCombatMessage);
         break;
+      case "team_heart":
+        this.handleHeart(msg as TeamHeartMessage);
+        break;
+      case "player_followed":
+        this.handleFollow(msg as PlayerFollowedMessage);
+        break;
       case "battle_restarted":
         this.victoryShown = false;
         break;
@@ -236,6 +244,46 @@ export default class TeamBattleScene extends Phaser.Scene {
     this.feed.push(`${msg.gift.icon} ${displayName} x${msg.quantity} +${Math.round(msg.growth.gained)}`);
     this.updateTeamBars(msg.teams);
     if (msg.winner_side) this.showVictory(msg.winner_side);
+  }
+
+  private async handleHeart(msg: TeamHeartMessage) {
+    const fighter = await this.avatars.spawnOrGet(
+      msg.player,
+      this.teamColors[msg.player.team],
+      true,
+    );
+    this.avatars.setPower(msg.player.user_id, msg.player.power);
+    this.effects.hearts(fighter.sprite.x, fighter.sprite.y, msg.count);
+    this.effects.floatingNumber(
+      fighter.sprite.x,
+      fighter.sprite.y - fighter.diameter / 2 - 36,
+      `+${Math.round(msg.heal)}`,
+      "#66ffb2",
+    );
+    const name = (msg.player.nickname || msg.player.username).toUpperCase();
+    this.feed.push(`\u2764\uFE0F ${name} recuperou ${Math.round(msg.heal)} de vida`);
+    if (msg.teams) this.updateTeamBars(msg.teams);
+  }
+
+  private async handleFollow(msg: PlayerFollowedMessage) {
+    const fighter = await this.avatars.spawnOrGet(
+      msg.player,
+      this.teamColors[msg.player.team],
+      true,
+    );
+    this.avatars.setPower(msg.player.user_id, msg.power);
+    this.avatars.growOnFollow(msg.player.user_id);
+    this.effects.hearts(fighter.sprite.x, fighter.sprite.y, 8);
+    this.effects.floatingNumber(
+      fighter.sprite.x,
+      fighter.sprite.y - fighter.diameter / 2 - 36,
+      "3× VIDA",
+      "#ff7aa8",
+    );
+    const name = (msg.player.nickname || msg.player.username).toUpperCase();
+    this.effects.bannerText(`${name} SEGUIU E FICOU MAIOR!`, ARENA_WIDTH / 2, 560, "#ff7aa8", 30);
+    this.feed.push(`\u2764\uFE0F ${name} seguiu — vida ${Math.round(msg.power)}`);
+    if (msg.teams) this.updateTeamBars(msg.teams);
   }
 
   private handleCombat(msg: PvpCombatMessage) {

@@ -18,6 +18,7 @@ const PACKED_MIN_DIAMETER = 26;
  * derived: at 1.0 the army fills every pixel and looks like a solid block. */
 const PACKING_EFFICIENCY = 0.55;
 const MAX_DIAMETER = 190;
+const FOLLOW_SIZE_FACTOR = 1.35;
 const POWER_FOR_MIN = 100;
 /** A visible breathing room so profile circles do not begin on top of one
  * another before Matter has a chance to resolve their collisions. */
@@ -186,13 +187,18 @@ export class PvpAvatarManager {
 
     for (const fighter of this.fighters.values()) {
       if (fighter.player.team !== team || !fighter.sprite.active) continue;
-      if (Math.abs(fighter.diameter - target) < 1) continue;
+      const fighterTarget = Phaser.Math.Clamp(
+        target * (fighter.player.followed ? FOLLOW_SIZE_FACTOR : 1),
+        PACKED_MIN_DIAMETER,
+        MAX_DIAMETER,
+      );
+      if (Math.abs(fighter.diameter - fighterTarget) < 1) continue;
 
-      const ratio = target / fighter.diameter;
+      const ratio = fighterTarget / fighter.diameter;
       const body = fighter.sprite.body as MatterJS.BodyType | undefined;
       if (body) this.scene.matter.body.scale(body, ratio, ratio);
-      fighter.sprite.setDisplaySize(target, target);
-      fighter.diameter = target;
+      fighter.sprite.setDisplaySize(fighterTarget, fighterTarget);
+      fighter.diameter = fighterTarget;
     }
   }
 
@@ -218,9 +224,14 @@ export class PvpAvatarManager {
     const power = player.power ?? POWER_FOR_MIN;
     // Count this newcomer before sizing, so they arrive at the size the side
     // is about to settle on rather than one step behind it.
-    const diameter = this.options.packToFit
+    const baseDiameter = this.options.packToFit
       ? this.packedDiameterFor(player.team, 1)
       : this.diameterFor(power);
+    const diameter = Phaser.Math.Clamp(
+      baseDiameter * (player.followed && this.options.packToFit ? FOLLOW_SIZE_FACTOR : 1),
+      PACKED_MIN_DIAMETER,
+      MAX_DIAMETER,
+    );
     const destination = this.findOpenSpawnPoint(player.team, diameter, dropIn);
     const enterFromCenter = dropIn && this.options.centerEntrance;
     const x = enterFromCenter ? CENTER_X : destination.x;
@@ -410,7 +421,14 @@ export class PvpAvatarManager {
     fighter.peakPower = Math.max(fighter.peakPower, fighter.power);
     fighter.powerLabel.setText(this.formatPower(fighter.power));
 
-    const target = this.diameterFor(fighter.power);
+    const target = this.options.packToFit
+      ? Phaser.Math.Clamp(
+          this.packedDiameter(fighter.player.team) *
+            (fighter.player.followed ? FOLLOW_SIZE_FACTOR : 1),
+          PACKED_MIN_DIAMETER,
+          MAX_DIAMETER,
+        )
+      : this.diameterFor(fighter.power);
     if (Math.abs(target - fighter.diameter) > 3) {
       this.resize(fighter, target);
     }
@@ -436,6 +454,22 @@ export class PvpAvatarManager {
       yoyo: true,
       ease: "Quad.easeOut",
     });
+  }
+
+  /** Persist the visual part of the follow boost. PvP already grows from the
+   * tripled power; fixed-size tank soldiers need this explicit enlargement. */
+  growOnFollow(userId: string): void {
+    const fighter = this.fighters.get(userId);
+    if (!fighter) return;
+    fighter.player = { ...fighter.player, followed: true };
+    if (this.options.packToFit) {
+      const base = this.packedDiameter(fighter.player.team);
+      this.resize(
+        fighter,
+        Phaser.Math.Clamp(base * FOLLOW_SIZE_FACTOR, PACKED_MIN_DIAMETER, MAX_DIAMETER),
+      );
+    }
+    this.celebrateGrowth(userId, true);
   }
 
   private resize(fighter: Fighter, diameter: number): void {

@@ -369,6 +369,11 @@ class Player(Base):
     # bombed and cannot fire until a slot opens.
     queued: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # A follow is a one-time social boost per battle session. Keeping the flag
+    # on the player makes duplicate provider events harmless and lets a newly
+    # connected arena restore the larger avatar without replaying history.
+    followed: Mapped[bool] = mapped_column(Boolean, default=False)
+
     last_interaction: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

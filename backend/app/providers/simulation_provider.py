@@ -87,11 +87,16 @@ class SimulationProvider(LiveEventProvider):
         username: str,
         nickname: str | None = None,
         avatar_url: str | None = None,
+        team: str | None = None,
     ) -> None:
         event = LiveEvent(
             type="viewer_join",
             user=LiveUser(id=user_id, username=username, nickname=nickname, avatar=avatar_url),
             timestamp=time.time(),
+            # A real join has no team hint. The simulator needs one so an
+            # explicit A/B quota can be honoured without creating a player on
+            # one side and switching it a moment later with a second event.
+            raw={"simulated": True, "simulated_team": team} if team in ("A", "B") else {},
         )
         await self.emit(session_id, event)
 
@@ -109,6 +114,39 @@ class SimulationProvider(LiveEventProvider):
             user=LiveUser(id=user_id, username=username, nickname=nickname, avatar=avatar_url),
             comment=text,
             timestamp=time.time(),
+        )
+        await self.emit(session_id, event)
+
+    async def simulate_like(
+        self,
+        session_id: str,
+        user_id: str,
+        username: str,
+        count: int = 1,
+        nickname: str | None = None,
+        avatar_url: str | None = None,
+    ) -> None:
+        event = LiveEvent(
+            type="like",
+            user=LiveUser(id=user_id, username=username, nickname=nickname, avatar=avatar_url),
+            timestamp=time.time(),
+            raw={"simulated": True, "like_count": max(1, count)},
+        )
+        await self.emit(session_id, event)
+
+    async def simulate_follow(
+        self,
+        session_id: str,
+        user_id: str,
+        username: str,
+        nickname: str | None = None,
+        avatar_url: str | None = None,
+    ) -> None:
+        event = LiveEvent(
+            type="follow",
+            user=LiveUser(id=user_id, username=username, nickname=nickname, avatar=avatar_url),
+            timestamp=time.time(),
+            raw={"simulated": True},
         )
         await self.emit(session_id, event)
 

@@ -91,6 +91,10 @@ class GamePipeline:
                 message = await self._handle_join(db, session, battle, event)
             elif event.type == "comment":
                 message = await self._handle_comment(db, session, battle, event)
+            elif event.type == "like":
+                message = await self._handle_like(db, session, battle, event)
+            elif event.type == "follow":
+                message = await self._handle_follow(db, session, battle, event)
             else:
                 message = None
 
@@ -245,7 +249,12 @@ class GamePipeline:
     async def _handle_join(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
-        team = (
+        simulated_team = (
+            event.raw.get("simulated_team")
+            if event.raw.get("simulated") and event.raw.get("simulated_team") in ("A", "B")
+            else None
+        )
+        team = simulated_team or (
             await team_battle_manager.assign_balanced_team(db, session.id)
             if battle.mode == "team_pvp"
             else random.choice(["A", "B"])
@@ -273,6 +282,164 @@ class GamePipeline:
             "session_id": session.id,
             "player": self._player_payload(player, created),
         }
+
+    async def _handle_like(
+        self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
+    ) -> dict:
+        """A TikTok heart restores the sender's own side.
+
+        In character and tank modes the heart flies to that side's boss. Team
+        PvP has no boss, so the sender's fighter receives the life directly.
+        A like never invents a team: the viewer must already be participating.
+        """
+        player = await self._active_social_player(db, session, battle, event)
+        if player is None:
+            return {}
+
+        config = await settings_service.get(db, "social_actions")
+        try:
+            reported = int(event.raw.get("like_count", 1))
+        except (TypeError, ValueError):
+            reported = 1
+        count = max(1, min(reported, int(config.get("max_likes_per_event", 100))))
+        requested = count * float(config.get("heal_per_like", 100))
+
+        side_a_char = await db.get(Character, battle.side_a_character_id)
+        side_b_char = await db.get(Character, battle.side_b_character_id)
+        teams = None
+
+        if battle.mode == "team_pvp":
+            before = player.power
+            player.power += requested
+            player.peak_power = max(player.peak_power, player.power)
+            team_config = await settings_service.get(db, "team_battle")
+            player.level = team_battle_manager.level_for(player.power, team_config)
+            applied = player.power - before
+            roster = (
+                (await db.execute(select(Player).where(Player.session_id == session.id)))
+                .scalars()
+                .all()
+            )
+            teams = team_battle_manager.team_totals(roster)
+        else:
+            before = session.side_a_xp if player.team == "A" else session.side_b_xp
+            after = xp_manager.apply(
+                session, player.team, requested, side_a_char, side_b_char
+            )
+            applied = after - before
+
+        player.heal_total += applied
+        player.last_interaction = datetime.now(timezone.utc)
+        db.add(
+            BattleEvent(
+                session_id=session.id,
+                player_id=player.id,
+                event_type="like",
+                quantity=count,
+                combo_count=1,
+                xp_delta=applied,
+                target_side=player.team,
+                payload={"source": event.raw.get("provider", "simulator")},
+            )
+        )
+        await db.flush()
+
+        return {
+            "type": "team_heart",
+            "session_id": session.id,
+            "player": self._player_payload(player, False),
+            "count": count,
+            "target_side": player.team,
+            "heal": round(applied, 1),
+            "xp": {"a": session.side_a_xp, "b": session.side_b_xp},
+            "xp_max": {"a": side_a_char.xp_max, "b": side_b_char.xp_max},
+            "teams": teams,
+        }
+
+    async def _handle_follow(
+        self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
+    ) -> dict:
+        """A follow permanently enlarges this session's avatar and triples HP.
+
+        Providers occasionally repeat social messages. ``player.followed`` is
+        the idempotency guard, so one follow can never become 3x, then 9x.
+        """
+        player = await self._active_social_player(db, session, battle, event)
+        if player is None or player.followed:
+            return {}
+
+        social = await settings_service.get(db, "social_actions")
+        multiplier = max(1.0, float(social.get("follow_life_multiplier", 3)))
+        base = player.power if player.power > 0 else float(social.get("follow_base_life", 100))
+        previous = player.power
+        player.power = base * multiplier
+        player.peak_power = max(player.peak_power, player.power)
+        player.followed = True
+        player.eliminated = False
+        player.heal_total += max(0.0, player.power - previous)
+        player.last_interaction = datetime.now(timezone.utc)
+
+        teams = None
+        if battle.mode == "team_pvp":
+            team_config = await settings_service.get(db, "team_battle")
+            player.level = team_battle_manager.level_for(player.power, team_config)
+
+        db.add(
+            BattleEvent(
+                session_id=session.id,
+                player_id=player.id,
+                event_type="follow",
+                quantity=1,
+                combo_count=1,
+                xp_delta=player.power - previous,
+                target_side=player.team,
+                payload={
+                    "multiplier": multiplier,
+                    "previous_power": previous,
+                    "source": event.raw.get("provider", "simulator"),
+                },
+            )
+        )
+        await db.flush()
+
+        roster = (
+            (await db.execute(select(Player).where(Player.session_id == session.id)))
+            .scalars()
+            .all()
+        )
+        if battle.mode == "team_pvp":
+            teams = team_battle_manager.team_totals(roster)
+
+        return {
+            "type": "player_followed",
+            "session_id": session.id,
+            "player": self._player_payload(player, False),
+            "previous_power": round(previous, 1),
+            "power": round(player.power, 1),
+            "multiplier": multiplier,
+            "teams": teams,
+            "armies": tank_war_manager.army_totals(roster)
+            if battle.mode == "tank_war"
+            else None,
+        }
+
+    @staticmethod
+    async def _active_social_player(
+        db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
+    ) -> Player | None:
+        player = (
+            await db.execute(
+                select(Player).where(
+                    Player.session_id == session.id,
+                    Player.user_id == event.user.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if player is None or player.eliminated or player.queued:
+            return None
+        if battle.mode == "tank_war" and not player.team_selected:
+            return None
+        return player
 
     # ------------------------------------------------------------------
     # Team PvP mode (viewers fight each other instead of the characters)
@@ -669,6 +836,7 @@ class GamePipeline:
             "kills": player.kills,
             "eliminated": player.eliminated,
             "queued": player.queued,
+            "followed": player.followed,
         }
 
     @staticmethod

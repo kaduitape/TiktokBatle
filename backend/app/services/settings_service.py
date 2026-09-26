@@ -33,6 +33,16 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "ui": 50,
         "victory": 80,
     },
+    # Social interactions are intentionally independent from gift prices.
+    # TikTok can batch several taps in one LikeEvent, so the heal is per heart.
+    "social_actions": {
+        "heal_per_like": 100,
+        "max_likes_per_event": 100,
+        "follow_life_multiplier": 3,
+        # Classic mode has no soldier HP to use as a starting point. This base
+        # still gives its viewer avatar a concrete life value after following.
+        "follow_base_life": 100,
+    },
     # Team PvP tuning -- every number the mode fights by lives here instead of
     # in game code, so the admin can rebalance a live match without a deploy.
     "team_battle": {

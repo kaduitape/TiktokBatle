@@ -1,6 +1,14 @@
 import Phaser from "phaser";
 import { API_BASE } from "../../api/client";
-import type { AttackMessage, ArenaMessage, CharacterPayload, PlayerJoinedMessage, StateSyncMessage } from "../../types/events";
+import type {
+  AttackMessage,
+  ArenaMessage,
+  CharacterPayload,
+  PlayerFollowedMessage,
+  PlayerJoinedMessage,
+  StateSyncMessage,
+  TeamHeartMessage,
+} from "../../types/events";
 import {
   buildCharacterObject,
   flashAction,
@@ -123,6 +131,12 @@ export default class GameScene extends Phaser.Scene {
       case "attack":
       case "heal":
         this.handleAttack(msg as AttackMessage);
+        break;
+      case "team_heart":
+        this.handleTeamHeart(msg as TeamHeartMessage);
+        break;
+      case "player_followed":
+        this.handleFollow(msg as PlayerFollowedMessage);
         break;
       case "sudden_death":
         this.effects.bannerText("🔥 MORTE SÚBITA 🔥", ARENA_WIDTH / 2, ARENA_HEIGHT / 2 - 200, "#ff3333", 56);
@@ -287,6 +301,41 @@ export default class GameScene extends Phaser.Scene {
       const name = (msg.player.nickname || msg.player.username).toUpperCase();
       this.effects.joinToast(`${name} ENTROU NA BATALHA`, ARENA_WIDTH / 2, 700);
     });
+  }
+
+  private async handleTeamHeart(msg: TeamHeartMessage) {
+    if (!this.sideAMeta || !this.sideBMeta) return;
+    const color = msg.player.team === "A" ? this.sideAMeta.team_color : this.sideBMeta.team_color;
+    const avatar = await this.avatarManager.spawnOrGet(msg.player, color, true);
+    const target = this.targetPositionFor(msg.target_side);
+    const name = (msg.player.nickname || msg.player.username).toUpperCase();
+
+    this.avatarManager.highlight(msg.player.user_id);
+    this.heals.fireHeal(
+      avatar.body.x,
+      avatar.body.y,
+      target.x,
+      target.y,
+      msg.count >= 10,
+      () => {
+        this.xp.update(msg.xp.a, msg.xp.b);
+        this.effects.floatingNumber(target.x, target.y - 40, `+${Math.round(msg.heal)}`, "#66ffb2");
+      },
+    );
+    this.audio.heal();
+    this.feed.push(`\u2764\uFE0F ${name} mandou ${msg.count} ${msg.count === 1 ? "coração" : "corações"} +${Math.round(msg.heal)}`);
+  }
+
+  private async handleFollow(msg: PlayerFollowedMessage) {
+    if (!this.sideAMeta || !this.sideBMeta) return;
+    const color = msg.player.team === "A" ? this.sideAMeta.team_color : this.sideBMeta.team_color;
+    const avatar = await this.avatarManager.spawnOrGet(msg.player, color, true);
+    this.avatarManager.markFollowed(msg.player.user_id);
+    this.effects.hearts(avatar.body.x, avatar.body.y, 8);
+    this.effects.floatingNumber(avatar.body.x, avatar.body.y - avatar.body.displayHeight / 2, "3× VIDA", "#ff7aa8");
+    const name = (msg.player.nickname || msg.player.username).toUpperCase();
+    this.effects.bannerText(`${name} SEGUIU E FICOU MAIS FORTE!`, ARENA_WIDTH / 2, 570, "#ff7aa8", 30);
+    this.feed.push(`\u2764\uFE0F ${name} seguiu — vida ${Math.round(msg.power)}`);
   }
 
   private targetPositionFor(side: "A" | "B"): { x: number; y: number } {

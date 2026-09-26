@@ -81,6 +81,31 @@ export class EffectsManager {
     });
   }
 
+  /** A compact social-heart celebration that stays readable in a busy room. */
+  hearts(x: number, y: number, count = 5) {
+    const visible = Phaser.Math.Clamp(count, 3, 10);
+    for (let i = 0; i < visible; i += 1) {
+      const heart = this.scene.add
+        .text(x + Phaser.Math.Between(-28, 28), y + Phaser.Math.Between(-12, 12), "\u2764\uFE0F", {
+          fontSize: `${Phaser.Math.Between(22, 34)}px`,
+        })
+        .setOrigin(0.5)
+        .setDepth(72)
+        .setAlpha(0);
+      this.scene.tweens.add({
+        targets: heart,
+        y: heart.y - Phaser.Math.Between(60, 120),
+        x: heart.x + Phaser.Math.Between(-25, 25),
+        alpha: { from: 1, to: 0 },
+        scale: { from: 0.6, to: 1.25 },
+        duration: 650 + i * 45,
+        delay: i * 35,
+        ease: "Cubic.easeOut",
+        onComplete: () => heart.destroy(),
+      });
+    }
+  }
+
   bannerText(text: string, x: number, y: number, color = "#ff5b5b", size = 46) {
     const label = this.scene.add
       .text(x, y, text, {

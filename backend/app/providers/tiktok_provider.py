@@ -67,8 +67,10 @@ class TikTokProvider(LiveEventProvider):
                 CommentEvent,
                 ConnectEvent,
                 DisconnectEvent,
+                FollowEvent,
                 GiftEvent,
                 JoinEvent,
+                LikeEvent,
             )
         except ImportError as exc:
             raise RuntimeError(
@@ -171,6 +173,38 @@ class TikTokProvider(LiveEventProvider):
                 return
             live_event = LiveEvent(
                 type="viewer_join",
+                user=user,
+                timestamp=time.time(),
+                raw={"provider": "tiktok"},
+            )
+            await self._emit_live_event(session_id, connection, live_event)
+
+        @client.on(LikeEvent)
+        async def _on_like(event: Any) -> None:
+            user = self._live_user(event)
+            if user is None:
+                return
+            live_event = LiveEvent(
+                type="like",
+                user=user,
+                timestamp=time.time(),
+                raw={
+                    "provider": "tiktok",
+                    # TikTokLive's count is the number of new taps in this
+                    # event; total is only informational and must not be added.
+                    "like_count": max(1, self._as_int(getattr(event, "count", None), default=1)),
+                    "total_likes": self._as_int(getattr(event, "total", None), default=0),
+                },
+            )
+            await self._emit_live_event(session_id, connection, live_event)
+
+        @client.on(FollowEvent)
+        async def _on_follow(event: Any) -> None:
+            user = self._live_user(event)
+            if user is None:
+                return
+            live_event = LiveEvent(
+                type="follow",
                 user=user,
                 timestamp=time.time(),
                 raw={"provider": "tiktok"},
