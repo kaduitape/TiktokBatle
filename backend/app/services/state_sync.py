@@ -25,14 +25,21 @@ async def build_state_sync(session_id: str) -> dict | None:
             .scalars()
             .all()
         )
-        # Eleições 2026 only draws voters who explicitly selected A or B.
-        # Legacy players created by gifts before this rule are kept in the
+        # Tank War only draws voters who explicitly typed "A"/"B" -- a bare
+        # join no longer enlists anyone there. Character mode uses the same
+        # idea but a slightly wider door: a real gift already put that viewer
+        # on screen for everyone watching live (see _handle_gift), so a
+        # reconnect has to keep showing them too, or a paying viewer would
+        # blink out of an OBS source that got reopened. Only someone who did
+        # neither -- joined and never typed a side or sent anything -- stays
+        # hidden. Legacy players from before this rule are kept in the
         # database for history, but are not sent back into the arena.
-        visible_players = (
-            [p for p in players if p.team_selected]
-            if battle.mode == "tank_war"
-            else players
-        )
+        if battle.mode == "tank_war":
+            visible_players = [p for p in players if p.team_selected]
+        elif battle.mode == "character":
+            visible_players = [p for p in players if p.team_selected or p.gifts_total > 0]
+        else:
+            visible_players = players
 
         def char_payload(c: Character) -> dict:
             return {

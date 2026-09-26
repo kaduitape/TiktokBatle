@@ -32,6 +32,26 @@ from app.ws.connection_manager import connection_manager
 logger = logging.getLogger("pipeline")
 
 
+def _team_for_fixed_keywords(text: str, team_a: str, team_b: str) -> str | None:
+    """Whether a chat comment is exactly one enlistment keyword.
+
+    Matching is case-insensitive and ignores surrounding spaces, but requires
+    the *whole* message to be the keyword so ordinary chatter ("A vontade que
+    eu tenho...") does not enlist someone by accident -- same rule Tank War's
+    configurable keywords already follow, just with the pair fixed to "A" and
+    "B": character mode's on-screen prompt is that literal text, not a
+    password an admin can rename.
+    """
+    cleaned = (text or "").strip().lower()
+    if not cleaned:
+        return None
+    if cleaned == team_a.strip().lower():
+        return "A"
+    if cleaned == team_b.strip().lower():
+        return "B"
+    return None
+
+
 class GamePipeline:
     """The core end-to-end flow from spec section 56:
 
@@ -249,6 +269,16 @@ class GamePipeline:
     async def _handle_join(
         self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
     ) -> dict:
+        if battle.mode == "character":
+            # A raw viewer_join fires for nearly everyone who opens the LIVE,
+            # most of whom never interact -- broadcasting an avatar for each
+            # one is what used to fill both sides with bubbles for people who
+            # were only watching. Character mode's entry point is now typing
+            # "A" or "B" in chat (see _handle_comment_character), or sending
+            # a gift, both of which create the player themselves; a bare join
+            # creates nothing and tells the arena nothing.
+            return {}
+
         simulated_team = (
             event.raw.get("simulated_team")
             if event.raw.get("simulated") and event.raw.get("simulated_team") in ("A", "B")
@@ -562,8 +592,11 @@ class GamePipeline:
     ) -> dict:
         """Viewers enlist by typing a keyword in chat ("A" or "B" by default).
         Anything else is ordinary chatter and ignored."""
-        if battle.mode not in ("tank_war", "team_pvp"):
+        if battle.mode not in ("tank_war", "team_pvp", "character"):
             return {}
+
+        if battle.mode == "character":
+            return await self._handle_comment_character(db, session, battle, event)
 
         config = await settings_service.get(db, "tank_war")
         team = tank_war_manager.team_for_comment(event.comment or "", config)
@@ -630,6 +663,48 @@ class GamePipeline:
             "queue_position": await tank_war_manager.queue_position(db, session.id, player)
             if player.queued
             else 0,
+        }
+
+    async def _handle_comment_character(
+        self, db: AsyncSession, session: BattleSession, battle: Battle, event: LiveEvent
+    ) -> dict:
+        """Character mode's own, much smaller enlistment.
+
+        Unlike Tank War there is no army roster, no queue, no per-soldier
+        power to start -- a viewer here is just a spectator avatar that shows
+        up near one boss instead of the other. Typing "A" or "B" is what
+        turns a passive viewer_join (see _handle_join, which now deliberately
+        stays silent for this mode) into that visible avatar, which is why
+        this reuses the "player_joined" message: this comment *is* the join,
+        as far as the arena is concerned, and GameScene already knows how to
+        spawn an avatar and show the "ENTROU NA BATALHA" toast for it.
+        """
+        # The on-screen prompt is fixed text ("Digite A" / "Digite B"), so the
+        # keyword is fixed too -- there is nothing here for an admin to rename
+        # the way Tank War's political keywords can be.
+        team = _team_for_fixed_keywords(event.comment or "", "A", "B")
+        if team is None:
+            return {}
+
+        player, created = await avatar_service.get_or_create_player(
+            db,
+            session.id,
+            battle,
+            user_id=event.user.id,
+            username=event.user.username,
+            nickname=event.user.nickname,
+            avatar_url=event.user.avatar,
+            team=team,
+        )
+        player.team = team
+        player.team_selected = True
+        player.last_interaction = datetime.now(timezone.utc)
+        await db.flush()
+
+        return {
+            "type": "player_joined",
+            "session_id": session.id,
+            "player": self._player_payload(player, created),
         }
 
     async def _handle_gift_tank_war(

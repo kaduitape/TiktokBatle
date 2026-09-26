@@ -99,6 +99,24 @@ class GiftCaptureService:
         quantity = gift_streak_guard.applicable_quantity(session_id, captured)
         learning = await self.learning_mode(db)
 
+        if event.raw and event.raw.get("skip_catalog_capture"):
+            # A simulated participant -- the autopilot, the stress test, the
+            # admin's manual "send gift" or "test from catalogue" buttons --
+            # is rehearsal, not audience. Its gift still resolves and fires
+            # through GamePipeline._resolve_gift exactly as a real one would
+            # (that lookup never touches the catalogue), but nothing here
+            # should bump times_received, appear in the discovery feed or the
+            # live event monitor: those exist to describe who is actually
+            # watching the LIVE, and a stress test of 200 fake viewers would
+            # otherwise drown that out in seconds.
+            return CaptureOutcome(
+                captured=captured,
+                entry_id="",
+                is_new=False,
+                quantity=quantity,
+                learning=learning,
+            )
+
         # The catalogue counts what the viewer actually sent, so a streak
         # already accounted for does not inflate times_received either.
         counting = CapturedGift(**{**captured.__dict__, "quantity": max(quantity, 0)})

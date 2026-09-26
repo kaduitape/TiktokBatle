@@ -20,6 +20,13 @@ MAX_SIDE = 4096
 ALPHA_BBOX_THRESHOLD = 16
 MIN_NORMALIZE_SCALE = 0.65
 MAX_NORMALIZE_SCALE = 2.6
+# Fraction of a frame's own visible height treated as "head and shoulders"
+# for horizontal alignment. Narrow enough that a raised arm or a swinging
+# tentacle rarely reaches into it, wide enough to survive a hat or big hair.
+ANCHOR_BAND = 0.22
+# A centroid needs only coarse resolution; shrinking to this width first keeps
+# the scan cheap even on a frame the studio generated at 1600x2400.
+ANCHOR_THUMB_MAX = 96
 
 
 def _content_mask(image: Image.Image) -> Image.Image:
@@ -40,6 +47,43 @@ def _content_mask(image: Image.Image) -> Image.Image:
 
 def _visible_area(image: Image.Image) -> int:
     return max(1, _content_mask(image).histogram()[255])
+
+
+def _horizontal_anchor(image: Image.Image) -> float:
+    """Where this frame's body actually sits, in its own pixel columns.
+
+    Centering a cell on the full silhouette's bounding box is what makes an
+    animation wobble left and right: a punch, a wave or a bomb toss widens
+    the box on one side and drags the whole character sideways with it, even
+    though the torso itself never moved. The anchor is instead the centre of
+    mass of the top of the figure -- head, hat, shoulders -- which stays
+    close to still while limbs swing, so poses line up on the body rather
+    than on whatever the silhouette happens to reach that frame.
+
+    Returns the x in ``image``'s own coordinates; ``image.width / 2`` (the
+    old bbox-centre behaviour) if the band is empty, which only happens on
+    an almost blank frame.
+    """
+    mask = _content_mask(image)
+    band_h = max(1, round(mask.height * ANCHOR_BAND))
+    band = mask.crop((0, 0, mask.width, band_h))
+    if band.getbbox() is None:
+        return image.width / 2
+
+    thumb_w = max(1, min(ANCHOR_THUMB_MAX, band.width))
+    thumb_h = max(1, round(band_h * thumb_w / band.width))
+    thumb = band.resize((thumb_w, thumb_h))
+    pixels = thumb.load()
+    total = 0
+    weighted = 0.0
+    for y in range(thumb_h):
+        for x in range(thumb_w):
+            if pixels[x, y] >= 128:
+                total += 1
+                weighted += x
+    if total == 0:
+        return image.width / 2
+    return (weighted / total) / thumb_w * image.width
 
 
 @dataclass
@@ -157,7 +201,29 @@ def _compose(
         trimmed = normalised
         drawn = [frame for frame in trimmed if frame is not None]
 
-    cell_w, cell_h = cell or (max(f.width for f in drawn), max(f.height for f in drawn))
+    # An anchor only stops the wobble if every frame actually has room either
+    # side of it to be shifted into place. Sizing the cell by the widest
+    # frame alone -- the old rule -- can leave that one frame with none: a
+    # fully extended arm reaching all the way to the cell's edge has nowhere
+    # left to move, so it stays pinned however far off-anchor its silhouette
+    # happens to sit, while narrower poses float freely to the true centre.
+    # The cell is sized instead so that the anchor's two sides both fit,
+    # which costs a little unused margin on a lopsided pose and is what
+    # actually keeps the head still frame to frame.
+    anchors: dict[int, float] = {}
+    if cell is None:
+        left_reach = right_reach = 0.0
+        for i, frame in enumerate(trimmed):
+            if frame is None:
+                continue
+            anchor_x = _horizontal_anchor(frame)
+            anchors[i] = anchor_x
+            left_reach = max(left_reach, anchor_x)
+            right_reach = max(right_reach, frame.width - anchor_x)
+        cell_w = max(1, round(2 * max(left_reach, right_reach)))
+        cell_h = max(f.height for f in drawn)
+    else:
+        cell_w, cell_h = cell
     columns = max(1, columns)
     rows = -(-len(trimmed) // columns)  # ceiling division
 
@@ -169,13 +235,21 @@ def _compose(
     for i, frame in enumerate(trimmed):
         if frame is None:
             continue
+        anchor_x = anchors[i] if i in anchors else _horizontal_anchor(frame)
         ratio = min(cell_w / frame.width, cell_h / frame.height)
         resized = frame.resize(
             (max(1, int(frame.width * ratio)), max(1, int(frame.height * ratio))),
             Image.LANCZOS,
         )
         col, row = i % columns, i // columns
-        x = col * cell_w + (cell_w - resized.width) // 2
+        # The anchor keeps the same spot in the cell on every frame; a pose
+        # whose limbs happen to reach further left or right than usual still
+        # lands with its head where the others' heads are, instead of being
+        # nudged over to keep the whole silhouette centred.
+        anchor_resized = anchor_x * ratio
+        cell_x = round(cell_w / 2 - anchor_resized)
+        cell_x = max(0, min(cell_w - resized.width, cell_x))
+        x = col * cell_w + cell_x
         y = row * cell_h + (cell_h - resized.height)
         sheet.paste(resized, (x, y), resized)
 

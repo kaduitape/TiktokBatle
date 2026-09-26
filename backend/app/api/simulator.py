@@ -138,6 +138,10 @@ async def simulate_platform_gift(
         nickname=body.username,
         avatar_url=f"https://i.pravatar.cc/150?u={body.username}",
         repeat_end=body.repeat_end,
+        # The one caller that wants the catalogue touched: this endpoint's
+        # whole job is rehearsing discovery of a gift ID before it happens on
+        # a real LIVE, so it has to actually reach gift_capture_service.
+        skip_catalog=False,
     )
     return {"ok": True, "platform_gift_id": body.platform_gift_id}
 
@@ -184,10 +188,18 @@ async def simulate_join(
         avatar_url=avatar_url,
     )
     team = None
-    if battle and battle.mode == "tank_war":
-        tank = await settings_service.get(db, "tank_war")
+    if battle and battle.mode in ("tank_war", "character"):
+        # Both modes now require an explicit "A"/"B" in chat before a viewer
+        # actually shows up (spec: real viewers only enter once they type
+        # their side). Left alone, this button's join would be invisible --
+        # exactly like a real viewer who never comments -- so it mirrors that
+        # chat action immediately, the same way it already did for Tank War.
         team = random.choice(["A", "B"])
-        word = str(tank.get("team_a_keyword" if team == "A" else "team_b_keyword", team))
+        if battle.mode == "tank_war":
+            tank = await settings_service.get(db, "tank_war")
+            word = str(tank.get("team_a_keyword" if team == "A" else "team_b_keyword", team))
+        else:
+            word = team
         await simulation_provider.simulate_comment(
             session_id=session_id,
             user_id=user_id,
@@ -313,6 +325,9 @@ async def simulate_stress(
 
     tank = await settings_service.get(db, "tank_war") if battle.mode == "tank_war" else {}
     keywords = [str(tank.get("team_a_keyword", "A")), str(tank.get("team_b_keyword", "B"))]
+    # Character mode's keyword is the fixed "A"/"B" the arena prompts for,
+    # not Tank War's configurable political words -- the same list works.
+    enlists_by_comment = battle.mode in ("tank_war", "character")
 
     existing = (
         (await db.execute(select(Player).where(Player.session_id == session.id))).scalars().all()
@@ -347,8 +362,9 @@ async def simulate_stress(
             nickname=name,
             avatar_url=avatar,
         )
-        if battle.mode == "tank_war":
-            # Without a side, a tank war gift is ignored outright.
+        if enlists_by_comment:
+            # Without a side, a tank war gift is ignored outright, and a
+            # character-mode viewer stays invisible until they pick one.
             await simulation_provider.simulate_comment(
                 session_id=session_id,
                 user_id=user_id,

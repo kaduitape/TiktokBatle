@@ -31,6 +31,13 @@ class SimulationProvider(LiveEventProvider):
             user=LiveUser(id=user_id, username=username, nickname=nickname, avatar=avatar_url),
             gift=LiveGift(id=gift_key, name=gift_key, quantity=quantity),
             timestamp=time.time(),
+            # A simulated participant -- the autopilot, the stress test, or the
+            # admin's manual "send gift" button -- is rehearsal, not audience.
+            # It still fires the configured rule (see GamePipeline._resolve_gift,
+            # which reads gifts by key here and never touches the catalogue),
+            # but it must not bump times_received or appear in the discovery
+            # feed: those describe who is actually watching the LIVE.
+            raw={"skip_catalog_capture": True},
         )
         await self.emit(session_id, event)
 
@@ -48,6 +55,7 @@ class SimulationProvider(LiveEventProvider):
         nickname: str | None = None,
         avatar_url: str | None = None,
         repeat_end: bool = True,
+        skip_catalog: bool = True,
     ) -> None:
         """Replay a catalogued gift exactly as its platform would send it.
 
@@ -76,6 +84,13 @@ class SimulationProvider(LiveEventProvider):
                 # once. Pass repeat_end=False to replay an intermediate update.
                 "repeat_end": repeat_end,
                 "simulated": True,
+                # Replaying an already-catalogued gift to test its rule is the
+                # same rehearsal as simulate_gift above, so it is silent by
+                # default too. /api/simulator/platform-gift is the one caller
+                # that turns this off: its whole job is letting an admin watch
+                # a brand-new gift ID go through capture before it happens on
+                # a real LIVE.
+                "skip_catalog_capture": skip_catalog,
             },
         )
         await self.emit(session_id, event)

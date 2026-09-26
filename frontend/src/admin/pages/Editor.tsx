@@ -6,6 +6,7 @@ interface Battle {
   name: string;
   side_a_character_id: string;
   side_b_character_id: string;
+  background_url: string | null;
 }
 
 interface Character {
@@ -39,6 +40,10 @@ export default function Editor() {
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<{ kind: "erro" | "ok"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The full-arena backdrop. Lives on the battle, not the character, so it
+   * is shown here for real -- positioning a character against a plain
+   * gradient is a guess about where it will actually land on the backdrop. */
+  const [background, setBackground] = useState<string | null>(null);
   /** Bottom strip the live overlay covers, in arena pixels (of 1920). */
   const [bottomSafe, setBottomSafe] = useState(0);
   /** The overlay image and where it sits, as fractions of the arena. */
@@ -76,8 +81,28 @@ export default function Editor() {
     if (!battle) return;
     api.get<Character>(`/api/characters/${battle.side_a_character_id}`).then(setCharA);
     api.get<Character>(`/api/characters/${battle.side_b_character_id}`).then(setCharB);
+    setBackground(battle.background_url);
     setDirty(false);
   }, [battleId, battles]);
+
+  /** Uploaded and applied immediately, like a character's art: waiting for
+   * "Salvar" to also swap the backdrop would make the preview lie about
+   * what the OBS source shows in the meantime. */
+  const uploadBackground = (file: File) =>
+    run("Não consegui subir o fundo", async () => {
+      const { url } = await api.upload("/api/characters/upload", file);
+      const updated = await api.put<Battle>(`/api/battles/${battleId}/background`, { background_url: url });
+      setBackground(updated.background_url);
+      setBattles((list) => list.map((b) => (b.id === battleId ? { ...b, background_url: updated.background_url } : b)));
+      setNotice({ kind: "ok", text: "Fundo aplicado. A arena aberta já está mostrando." });
+    });
+
+  const removeBackground = () =>
+    run("Não consegui remover o fundo", async () => {
+      const updated = await api.put<Battle>(`/api/battles/${battleId}/background`, { background_url: null });
+      setBackground(updated.background_url);
+      setBattles((list) => list.map((b) => (b.id === battleId ? { ...b, background_url: updated.background_url } : b)));
+    });
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!previewRef.current) return;
@@ -164,6 +189,25 @@ export default function Editor() {
             <option key={b.id} value={b.id}>{b.name}</option>
           ))}
         </select>
+
+        <label style={{ marginTop: 14 }}>Fundo da arena</label>
+        <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 8px" }}>
+          A imagem completa por trás dos personagens. Aplica na hora -- a arena aberta no OBS
+          troca o fundo assim que você escolhe o arquivo, sem precisar de "Salvar" ou reiniciar.
+        </p>
+        <div className="row">
+          <input
+            type="file"
+            accept="image/*"
+            disabled={busy || !battleId}
+            onChange={(e) => e.target.files?.[0] && uploadBackground(e.target.files[0])}
+          />
+          {background && (
+            <button className="secondary" onClick={removeBackground} disabled={busy}>
+              Remover fundo
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="card row" style={{ alignItems: "flex-start" }}>
@@ -181,7 +225,9 @@ export default function Editor() {
           style={{
             width: PREVIEW_WIDTH,
             height: PREVIEW_HEIGHT,
-            background: "linear-gradient(#1a1a2a, #10101a)",
+            background: background
+              ? `url(${assetUrl(background)}) center / cover, linear-gradient(#1a1a2a, #10101a)`
+              : "linear-gradient(#1a1a2a, #10101a)",
             position: "relative",
             border: "1px solid #33334c",
             borderRadius: 6,

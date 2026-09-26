@@ -8,6 +8,11 @@ interface Bar {
   nameLabel: Phaser.GameObjects.Text;
   danger: boolean;
   baseColor: number;
+  /** "Digite A"/"Digite B": how a real viewer actually joins this side.
+   * Character mode only shows an avatar for someone who typed the letter in
+   * chat (or who already gifted), so without this prompt there is nothing
+   * on screen telling a first-time viewer that typing does anything at all. */
+  joinPrompt: Phaser.GameObjects.Text;
 }
 
 const BAR_WIDTH = ARENA_WIDTH / 2 - 40;
@@ -28,14 +33,14 @@ export class XPManager {
     this.maxA = maxA;
     this.maxB = maxB;
 
-    this.barA = this.buildBar(20, colorA, "left");
-    this.barB = this.buildBar(ARENA_WIDTH - 20 - BAR_WIDTH, colorB, "right");
+    this.barA = this.buildBar(20, colorA, "A");
+    this.barB = this.buildBar(ARENA_WIDTH - 20 - BAR_WIDTH, colorB, "B");
 
     this.barA.nameLabel.setText(nameA.toUpperCase());
     this.barB.nameLabel.setText(nameB.toUpperCase());
   }
 
-  private buildBar(x: number, color: string, align: "left" | "right"): Bar {
+  private buildBar(x: number, color: string, keyword: "A" | "B"): Bar {
     const bg = this.scene.add.rectangle(x, XP_BAR_Y, BAR_WIDTH, BAR_HEIGHT, 0x000000, 0.55).setOrigin(0, 0.5).setDepth(90);
     bg.setStrokeStyle(2, 0xffffff, 0.4);
     const baseColor = Phaser.Display.Color.HexStringToColor(color).color;
@@ -66,7 +71,30 @@ export class XPManager {
       .setOrigin(0.5)
       .setDepth(93);
 
-    return { bg, fill, label, nameLabel, danger: false, baseColor };
+    const joinPrompt = this.scene.add
+      .text(x + BAR_WIDTH / 2, XP_BAR_Y + BAR_HEIGHT / 2 + 26, `DIGITE ${keyword}`, {
+        fontFamily: "Segoe UI, sans-serif",
+        fontSize: "22px",
+        fontStyle: "bold",
+        color: "#fff23c",
+        stroke: "#000",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(94);
+    // A steady blink, not a fade to nothing: it has to keep reading as "type
+    // this" to someone glancing at the stream for a second, not disappear
+    // right when they look.
+    this.scene.tweens.add({
+      targets: joinPrompt,
+      alpha: 0.25,
+      duration: 550,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
+    return { bg, fill, label, nameLabel, danger: false, baseColor, joinPrompt };
   }
 
   update(xpA: number, xpB: number) {
