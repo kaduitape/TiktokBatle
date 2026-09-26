@@ -38,11 +38,30 @@ def _content_mask(image: Image.Image) -> Image.Image:
     A tiny morphological opening removes those dots from the *measurement*
     without modifying hair, props or any pixels in the delivered artwork.
     """
-    visible = image.getchannel("A").point(
-        lambda alpha: 255 if alpha >= ALPHA_BBOX_THRESHOLD else 0
-    )
+    alpha = image.getchannel("A")
+    if alpha.getextrema()[0] >= 250:
+        # No transparency at all: the frame still has the card it was drawn
+        # on. Measured by alpha, the whole canvas would count as character,
+        # the frame would look huge, and normalisation would shrink the
+        # drawing inside it -- the frame that arrived clean then looks
+        # bigger than all the others. Measure by distance from the card's
+        # colour instead, so at least the size stays honest.
+        visible = _differs_from_border(image)
+    else:
+        visible = alpha.point(lambda a: 255 if a >= ALPHA_BBOX_THRESHOLD else 0)
     stable = visible.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
     return stable if stable.getbbox() else visible
+
+
+def _differs_from_border(image: Image.Image) -> Image.Image:
+    """Pixels that are not the border's colour, as a 0/255 mask."""
+    from app.services.background_cutout import DEFAULT_TOLERANCE, border_colour
+    import numpy as np
+
+    rgb = np.asarray(image.convert("RGB"))
+    colour, _agreement = border_colour(rgb)
+    distance = np.abs(rgb.astype(np.int16) - colour).max(axis=2)
+    return Image.fromarray(((distance > DEFAULT_TOLERANCE) * 255).astype("uint8"), mode="L")
 
 
 def _visible_area(image: Image.Image) -> int:

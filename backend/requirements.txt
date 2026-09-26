@@ -21,3 +21,4 @@ Pillow==10.4.0
 # Webcast protocol evolves and a deliberate upgrade/test is safer than an
 # unexpected image rebuild changing the event schema.
 TikTokLive==7.0.1
+numpy==2.1.1

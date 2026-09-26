@@ -124,8 +124,29 @@ class OpenAIImageProvider(ImageProvider):
     label = "OpenAI (gpt-image-1)"
     default_size = "1024x1536"
 
+    #: Real alpha, straight from the model, is always better than cutting a
+    #: card out afterwards. Some image models reject the parameter; the first
+    #: refusal turns it off for the rest of the run instead of failing it.
+    _wants_transparency = True
+
     def open_client(self) -> httpx.AsyncClient:
         return self._client(settings.image_api_base, {"Authorization": f"Bearer {self.key}"})
+
+    def _transparency(self) -> dict:
+        return {"background": "transparent"} if self._wants_transparency else {}
+
+    async def _post(self, client: httpx.AsyncClient, path: str, **kwargs) -> dict:
+        try:
+            return await super()._post(client, path, **kwargs)
+        except ImageProviderError as exc:
+            if not self._wants_transparency or "background" not in str(exc).lower():
+                raise
+            logger.warning("o modelo recusou background=transparent; seguindo sem ele")
+            self._wants_transparency = False
+            for body in ("json", "data"):
+                if isinstance(kwargs.get(body), dict):
+                    kwargs[body] = {k: v for k, v in kwargs[body].items() if k != "background"}
+            return await super()._post(client, path, **kwargs)
 
     def _first_image(self, payload: dict) -> Image.Image:
         try:
@@ -143,6 +164,7 @@ class OpenAIImageProvider(ImageProvider):
                 "size": size,
                 "output_format": "png",
                 "n": 1,
+                **self._transparency(),
             },
         )
         return self._first_image(payload)
@@ -158,6 +180,7 @@ class OpenAIImageProvider(ImageProvider):
                 "prompt": instruction,
                 "size": size,
                 "n": "1",
+                **self._transparency(),
             },
             files={"image": ("base.png", reference_png, "image/png")},
         )

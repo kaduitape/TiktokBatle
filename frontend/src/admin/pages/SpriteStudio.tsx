@@ -56,6 +56,8 @@ interface Sheet {
   hit_url: string | null;
   fire_url: string | null;
   clips: Clip[];
+  /** Frames whose background did not come off cleanly. */
+  warnings?: string[];
 }
 
 interface Character {
@@ -1145,6 +1147,21 @@ export default function SpriteStudio() {
       {sheet && (
         <div className="card">
           <h3>Resultado</h3>
+          {(sheet.warnings ?? []).map((warning) => (
+            <p
+              key={warning}
+              style={{
+                borderLeft: "3px solid #e0a01b",
+                paddingLeft: 10,
+                color: "#f0c060",
+                fontSize: 13,
+                margin: "0 0 10px",
+                lineHeight: 1.6,
+              }}
+            >
+              ⚠️ {warning}
+            </p>
+          ))}
           {sheet.url && (
             <>
               <img

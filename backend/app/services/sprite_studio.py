@@ -21,6 +21,13 @@ from PIL import Image
 
 from app.core.config import settings
 from app.services import secret_store
+from app.services.background_cutout import (
+    already_transparent,
+    cut_out,
+    hex_colour,
+    on_key,
+    pick_key_colour,
+)
 from app.services.image_providers import ImageProvider, ImageProviderError, build, catalog
 from app.services.sprite_sheet import SheetLayout, compose_rows
 
@@ -47,18 +54,33 @@ def _style_rules(
     provider: ImageProvider,
     description: str = "",
     adjustment_prompt: str = "",
+    key: tuple[int, int, int] | None = None,
 ) -> str:
-    """Build the shared frame rules without altering the supplied PNG.
+    """The rules every frame shares, plus the admin's own corrections.
 
-    A white card cannot be safely keyed when the character has white hair or
-    clothes. Providers without an alpha switch therefore get a vivid chroma
-    background that is deliberately forbidden in the subject; the local
-    cutout can then remove even enclosed gaps without guessing at semantics.
+    The background is asked for as transparent, falling back to one flat,
+    uniform colour. Never a named chroma colour: keying out a magenta card is
+    what left purple streaks through the character. A flat card of *any*
+    colour is removed afterwards by the border fill in background_cutout,
+    which does not care what the colour is -- only that it is flat and
+    reaches the edge.
     """
-    background = (
-        "Keep the original canvas, background and alpha channel exactly as they are. "
-        "Do not add a chroma-key, purple, magenta or green background."
-    )
+    if key is not None:
+        colour = hex_colour(key)
+        background = (
+            f"The background is one flat solid {colour} filling the whole canvas edge "
+            f"to edge, exactly as in the reference image -- keep it {colour} "
+            "everywhere around and between the character's limbs, with no gradient, "
+            f"no shadow, no floor, no texture. Never use {colour} anywhere on the "
+            "character itself"
+        )
+    else:
+        background = (
+            "Transparent background. If transparency is impossible, use one plain, "
+            "flat, uniform background colour that fills the whole canvas edge to "
+            "edge -- no gradient, no vignette, no shadow, no floor, no texture, and "
+            "never purple or magenta"
+        )
     adjustment = adjustment_prompt.strip()
     requested = (
         " Apply these user corrections to every generated frame while preserving "
@@ -146,21 +168,38 @@ async def _require_key(provider: str) -> str:
     return key
 
 
-def _clean(image: Image.Image, provider: ImageProvider) -> Image.Image:
-    """Drop a flat background the service left behind.
+def _clean(
+    image: Image.Image,
+    provider: ImageProvider,
+    key: tuple[int, int, int] | None = None,
+) -> Image.Image:
+    """Take off the flat card the service drew the character on.
 
-    Only OpenAI has a transparency switch; the others can only be asked in
-    words and often answer with the character on a flat card. Saturated chroma
-    backgrounds can be removed through enclosed gaps; neutral backgrounds are
-    removed only from the border so white beard, clothing and eyes survive.
+    Asked to edit a transparent PNG, every provider -- OpenAI included, on
+    some calls -- tends to answer with the character on a white or black
+    card. Left in, that card is a rectangle in the arena *and* it makes the
+    frame look full-canvas to the sheet composer, which then shrinks it to
+    match the others: the frame that arrived clean ends up visibly bigger.
 
-    It runs for every provider, not just the ones without the flag: even a
-    service that has one sometimes returns an opaque frame, and a drawing that
-    already carries real transparency is left untouched.
+    A drawing that already carries real transparency is left exactly as it
+    came. A frame whose card could not be removed confidently (scenery, not a
+    flat colour) is also left alone, and flagged so the panel can say which
+    one to redo instead of the admin finding it on the sheet.
     """
-    # Background removal used to turn chroma pixels into transparent pixels.
-    # PNGs are now deliberately used as received, including their alpha.
-    return image.convert("RGBA")
+    rgba = image.convert("RGBA")
+    if already_transparent(rgba):
+        return rgba
+    try:
+        cleaned, changed = cut_out(rgba, key=key)
+    except Exception:  # noqa: BLE001 - a failed cutout must never lose the art
+        logger.exception("não consegui recortar o fundo; usando a imagem como veio")
+        cleaned, changed = rgba, False
+    if changed:
+        logger.info("fundo liso removido (%s)", provider.label)
+    else:
+        cleaned.info["kept_background"] = True
+        logger.warning("quadro ficou com fundo (%s): não era uma cor lisa", provider.label)
+    return cleaned
 
 
 def _as_png(image: Image.Image) -> bytes:
@@ -237,6 +276,8 @@ class StudioResult:
     fire: bytes | None
     #: What each row of the sheet is, in the shape the game reads.
     clips: list[dict] = field(default_factory=list)
+    #: Frames whose card did not come off cleanly, in words for the panel.
+    warnings: list[str] = field(default_factory=list)
 
 
 async def generate_artwork(
@@ -332,7 +373,16 @@ async def generate_artwork(
             logger.info("sprite studio: quadro 1 gerado do texto")
             step("quadro 1")
 
-        reference_png = _as_png(frames[0])
+        # The card every edit is drawn on: a colour the character does not
+        # contain, read from the character itself. The reference goes to the
+        # model already sitting on it, because an edit keeps its background
+        # -- sent transparent, it came back white on one frame and black on
+        # the next, and neither can be cut out cleanly from a character with
+        # a white beard and a black hat band.
+        key_colour = pick_key_colour(frames[0])
+        style_rules = _style_rules(provider, description, adjustment_prompt, key=key_colour)
+        reference_png = _as_png(on_key(frames[0], key_colour))
+        logger.info("sprite studio: cor-chave %s", hex_colour(key_colour))
 
         for index, pose in enumerate(pose_instructions, start=len(frames) + 1):
             frames.append(
@@ -346,6 +396,7 @@ async def generate_artwork(
                         size,
                     ),
                     provider,
+                    key_colour,
                 )
             )
             logger.info("sprite studio: quadro %d gerado", index)
@@ -372,6 +423,7 @@ async def generate_artwork(
                             size,
                         ),
                         provider,
+                        key_colour,
                     )
                 )
                 logger.info("sprite studio: %s %d/%d", gesture.name, position, len(gesture.poses))
@@ -379,8 +431,9 @@ async def generate_artwork(
             gesture_rows.append(row)
 
         hit = fire = None
+        hit_image = fire_image = None
         if want_hit:
-            hit = _as_png(
+            hit_image = (
                 _clean(await provider.edit(
                     client,
                     reference_png,
@@ -390,12 +443,13 @@ async def generate_artwork(
                         style_rules,
                     ),
                     size,
-                ), provider)
+                ), provider, key_colour)
             )
+            hit = _as_png(hit_image)
             logger.info("sprite studio: imagem de dano gerada")
             step("pose de dano")
         if want_fire:
-            fire = _as_png(
+            fire_image = (
                 _clean(await provider.edit(
                     client,
                     reference_png,
@@ -405,12 +459,49 @@ async def generate_artwork(
                         style_rules,
                     ),
                     size,
-                ), provider)
+                ), provider, key_colour)
             )
+            fire = _as_png(fire_image)
             logger.info("sprite studio: imagem de disparo gerada")
             step("pose de ataque")
 
-    return _lay_out(frames, gestures, gesture_rows, columns, hit, fire)
+    result = _lay_out(frames, gestures, gesture_rows, columns, hit, fire)
+    result.warnings = _background_warnings(frames, gestures, gesture_rows, hit_image, fire_image)
+    return result
+
+
+def _background_warnings(frames, gestures, gesture_rows, hit_image, fire_image) -> list[str]:
+    """Name the frames whose card did not come off cleanly.
+
+    A frame the model drew on the key colour is cut exactly. One where it
+    ignored the key and painted white or black instead only loses the part
+    of the card that touches the edge -- the holes between arms or tentacles
+    keep it. Saying which frame that was lets the admin regenerate or touch
+    up that one, instead of finding the white patches on the sheet later.
+    """
+    labelled: list[tuple[str, Image.Image | None]] = [
+        (f"quadro {i}", frame) for i, frame in enumerate(frames, start=1)
+    ]
+    for gesture, row in zip(gestures, gesture_rows):
+        labelled += [(f"{gesture.name} {i}", frame) for i, frame in enumerate(row, start=1)]
+    labelled += [("pose de dano", hit_image), ("pose de ataque", fire_image)]
+
+    partial = [label for label, img in labelled if img is not None and img.info.get("cut_mode") == "border"]
+    kept = [label for label, img in labelled if img is not None and img.info.get("kept_background")]
+
+    warnings = []
+    if partial:
+        warnings.append(
+            "A IA ignorou a cor de fundo pedida em: " + ", ".join(partial) + ". "
+            "O fundo de fora foi removido, mas buracos entre braços/tentáculos podem ter "
+            "ficado com fundo. Gere de novo ou baixe a folha, apague e use \"Substituir\"."
+        )
+    if kept:
+        warnings.append(
+            "Não consegui remover o fundo de: " + ", ".join(kept) + " (não era uma cor lisa). "
+            "Gere de novo ou substitua a folha por uma editada."
+        )
+    return warnings
 
 
 def _lay_out(

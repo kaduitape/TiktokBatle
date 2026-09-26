@@ -75,6 +75,8 @@ class GenerateOut(BaseModel):
     fire_url: str | None = None
     #: What each row of the sheet is. Empty means the whole grid is one loop.
     clips: list[dict] = Field(default_factory=list)
+    #: Frames whose background did not come off cleanly, for the panel.
+    warnings: list[str] = Field(default_factory=list)
 
 
 class KeyIn(BaseModel):
@@ -385,6 +387,7 @@ def _to_out(result) -> GenerateOut:
             # Applied as a plain still: there is nothing to slice, so the clip
             # list would only describe a grid the game is not going to read.
             out.clips = []
+    out.warnings = list(getattr(result, "warnings", []) or [])
     if result.hit:
         out.hit_url = _save_png(result.hit)
     if result.fire:
