@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, assetUrl } from "../../api/client";
 import MovementSounds from "../MovementSounds";
+import MovementEditor, { type Movement } from "../MovementEditor";
 
 interface Character {
   id: string;
@@ -27,6 +28,9 @@ interface Character {
   sprite_clips: Clip[];
   /** A sound per movement: "base", a gesture's name, "hit", "fire". */
   sprite_sounds: Record<string, string>;
+  /** One sheet per movement; when there is a base one, the arena uses these
+   * instead of the single sheet above. */
+  sprite_movements: Movement[];
   xp_max: number;
 }
 
@@ -63,6 +67,7 @@ const empty: Omit<Character, "id"> = {
   fire_image_url: null,
   sprite_clips: [],
   sprite_sounds: {},
+  sprite_movements: [],
   xp_max: 100000,
 };
 
@@ -79,6 +84,7 @@ interface SpriteModel {
   fire_image_url: string | null;
   sprite_clips: Clip[];
   sprite_sounds?: Record<string, string>;
+  sprite_movements?: Movement[];
 }
 
 /** What this character will actually do in the arena, in one sentence.
@@ -178,6 +184,7 @@ export default function Characters() {
       // included -- the character would blink and hop as part of its walk.
       sprite_clips: model.sprite_clips ?? [],
       sprite_sounds: model.sprite_sounds ?? {},
+      sprite_movements: model.sprite_movements ?? [],
     });
     setNotice({
       kind: "ok",
@@ -395,14 +402,30 @@ export default function Characters() {
               </div>
             </div>
 
-            {form.sprite_columns > 0 && (
+            <label>Movimentos (um sprite por movimento)</label>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 6px" }}>
+              Cada movimento com a sua própria folha e quantos quadros quiser, para ficar mais suave. Com um
+              movimento base aqui, a arena usa estes no lugar da folha única acima. Salve o personagem para valer.
+            </p>
+            <MovementEditor
+              movements={form.sprite_movements ?? []}
+              onChange={(sprite_movements) => setForm({ ...form, sprite_movements })}
+              baseFps={form.sprite_fps}
+            />
+
+            {(form.sprite_columns > 0 || (form.sprite_movements ?? []).length > 0) && (
               <>
                 <label>Som de cada movimento (opcional)</label>
                 <p style={{ color: "#9a9ac0", fontSize: 12, margin: "2px 0 6px" }}>
                   Toca na arena quando o personagem faz aquele movimento. Salve o personagem para valer.
                 </p>
                 <MovementSounds
-                  clips={form.sprite_clips ?? []}
+                  clips={[
+                    ...(form.sprite_clips ?? []),
+                    ...(form.sprite_movements ?? [])
+                      .filter((m) => m.kind === "gesture")
+                      .map((m) => ({ name: m.name, kind: "gesture" as const })),
+                  ]}
                   sounds={form.sprite_sounds ?? {}}
                   onChange={(sprite_sounds) => setForm({ ...form, sprite_sounds })}
                 />

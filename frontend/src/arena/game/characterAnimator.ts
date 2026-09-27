@@ -29,6 +29,9 @@ export interface SpriteClip {
   kind?: "idle" | "gesture";
   /** Relative chance of being picked. Higher shows up more often. */
   weight?: number;
+  /** The Phaser animation to play, when it is not the packed sheet's
+   * row-based one -- a movement with its own sheet names its own. */
+  animKey?: string;
   /** Fraction of the character's height it rises while the clip plays.
    * The sheet bottom-aligns every frame on its feet, so a hop drawn as art
    * never leaves the floor -- this is what actually lifts it. */
@@ -69,6 +72,11 @@ export interface CharacterAnimatorOptions {
   gesturesOnly?: boolean;
   /** Absolute sheet frame used while a gestures-only character is waiting. */
   idleFrame?: number;
+  /** Texture of the still frame, when it is not the packed sheet. */
+  idleTexture?: string;
+  /** Called after every switch of animation: separate movement sheets may
+   * have different cell sizes, and the on-screen height must not change. */
+  refit?: () => void;
   /** Sound per movement, keyed by clip name ("base" for the loop). */
   sounds?: Record<string, string>;
   /** Where sounds go -- the scene's audio mixer. */
@@ -97,6 +105,8 @@ export class CharacterAnimator {
   private suspended = false;
   private gesturesOnly = false;
   private sounds: Record<string, string> = {};
+  private idleTexture = "";
+  private refit?: () => void;
   private playSound?: (url: string) => void;
   private lastBaseSound = 0;
   private idleFrame = 0;
@@ -117,6 +127,8 @@ export class CharacterAnimator {
     this.gestures = clips.filter((c) => c.kind === "gesture");
     this.gesturesOnly = options.gesturesOnly ?? false;
     this.sounds = options.sounds ?? {};
+    this.idleTexture = options.idleTexture ?? `${keyPrefix}__sheet`;
+    this.refit = options.refit;
     this.playSound = options.playSound;
     this.idleFrame = Math.max(0, options.idleFrame ?? 0);
   }
@@ -158,7 +170,7 @@ export class CharacterAnimator {
   }
 
   private animKey(clip: SpriteClip): string {
-    return `${this.keyPrefix}__${clip.name}_${clip.row}`;
+    return clip.animKey ?? `${this.keyPrefix}__${clip.name}_${clip.row}`;
   }
 
   private playIdle(): void {
@@ -166,6 +178,7 @@ export class CharacterAnimator {
     const key = this.animKey(this.idle);
     if (!this.scene.anims.exists(key)) return;
     this.sprite.play({ key, repeat: -1 }, true);
+    this.refit?.();
     this.driftTempo();
     this.sound("base");
     this.sprite.off(Phaser.Animations.Events.ANIMATION_REPEAT);
@@ -189,7 +202,8 @@ export class CharacterAnimator {
   private showStillFrame(): void {
     if (!this.sprite.active || !this.idle) return;
     this.sprite.anims.stop();
-    this.sprite.setTexture(`${this.keyPrefix}__sheet`, this.idleFrame);
+    this.sprite.setTexture(this.idleTexture, this.idleFrame);
+    this.refit?.();
     this.sprite.anims.timeScale = 1;
   }
 
@@ -288,6 +302,7 @@ export class CharacterAnimator {
     // this one and schedule a second timer.
     this.sprite.off(Phaser.Animations.Events.ANIMATION_COMPLETE);
     this.sprite.play({ key, repeat: 0 }, true);
+    this.refit?.();
     this.sound(clip.name);
     this.hop(clip, (clip.frames / (clip.fps ?? this.baseFps)) * 1000);
     this.sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {

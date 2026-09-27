@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { CharacterPayload } from "../../types/events";
+import type { CharacterPayload, SpriteMovementPayload } from "../../types/events";
 import { CharacterAnimator, readClips, type SpriteClip } from "./characterAnimator";
 
 /** A character's art is either a single still image or a sprite sheet: one
@@ -118,8 +118,27 @@ export function flashAction(
   // hit sound but no hit drawing still says "ouch".
   if (sprite.active) playCharacterSound(meta, kind);
 
-  const key = actionTextureKey(meta, kind);
   const idle = sprite.getData(IDLE_POSE) as IdlePose | undefined;
+  const reactionAnim = (sprite.getData(REACTION_ANIMS) as Record<string, string> | undefined)?.[kind];
+  if (idle && sprite.active && reactionAnim && scene.anims.exists(reactionAnim)) {
+    // A movement of its own: play it through once, then hand the sprite back.
+    const token = idle.token + 1;
+    idle.token = token;
+    const animator = animatorFor(sprite);
+    animator?.suspend();
+    const asSprite = sprite as Phaser.GameObjects.Sprite;
+    asSprite.anims.timeScale = 1;
+    asSprite.play({ key: reactionAnim, repeat: 0 }, true);
+    refitToIdle(sprite);
+    asSprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      if (!sprite.active || idle.token !== token) return;
+      animator?.resume();
+      refitToIdle(sprite);
+    });
+    return true;
+  }
+
+  const key = actionTextureKey(meta, kind);
   if (!idle || !scene.textures.exists(key) || !sprite.active) return false;
 
   const token = idle.token + 1;
@@ -253,6 +272,159 @@ function ensureAnimation(scene: Phaser.Scene, imageKey: string, meta: CharacterP
   return animKey;
 }
 
+// ---------------------------------------------------------------------------
+// One sheet per movement
+// ---------------------------------------------------------------------------
+
+export function movementsOf(meta: CharacterPayload): SpriteMovementPayload[] {
+  return (meta.sprite_movements ?? []).filter(
+    (m) => m && m.image_url && (m.frames ?? 0) > 0 && (m.columns ?? 0) > 0,
+  );
+}
+
+export function hasMovements(meta: CharacterPayload): boolean {
+  return movementsOf(meta).some((m) => m.kind === "idle");
+}
+
+const movementSheetKey = (meta: CharacterPayload, m: SpriteMovementPayload) =>
+  textureKeyFor(meta, m.image_url, `__mv_${m.name}__sheet`);
+
+const movementAnimKey = (meta: CharacterPayload, m: SpriteMovementPayload) =>
+  `${movementSheetKey(meta, m)}__play`;
+
+/** Loads every movement's sheet the character needs, sliced by its grid.
+ * Resolves once all of them are in (a sheet that fails to load is skipped,
+ * not waited on forever). */
+export function loadMovementTextures(
+  scene: Phaser.Scene,
+  meta: CharacterPayload,
+  resolve: (url: string | null) => string | null,
+): Promise<void> {
+  const pending = movementsOf(meta).filter((m) => !scene.textures.exists(movementSheetKey(meta, m)));
+  if (!pending.length) return Promise.resolve();
+
+  return new Promise((done) => {
+    let left = pending.length;
+    const finish = () => {
+      left -= 1;
+      if (left <= 0) {
+        scene.load.off("loaderror", onError);
+        done();
+      }
+    };
+    const raw = new Map<string, SpriteMovementPayload>();
+    const onError = (file: Phaser.Loader.File) => {
+      if (raw.has(file.key)) finish();
+    };
+    scene.load.on("loaderror", onError);
+    scene.load.setCORS("anonymous");
+
+    for (const m of pending) {
+      const url = resolve(m.image_url);
+      const sheetKey = movementSheetKey(meta, m);
+      const rawKey = `${sheetKey}__raw`;
+      if (!url) {
+        finish();
+        continue;
+      }
+      raw.set(rawKey, m);
+      scene.load.image(rawKey, url);
+      scene.load.once(`filecomplete-image-${rawKey}`, () => {
+        // Sliced by the grid the server reported, so the frame size always
+        // matches the file -- no pixel sizes to get out of step.
+        if (!scene.textures.exists(sheetKey)) {
+          const source = scene.textures.get(rawKey).getSourceImage() as HTMLImageElement;
+          scene.textures.addSpriteSheet(sheetKey, source as any, {
+            frameWidth: Math.floor(source.width / Math.max(1, m.columns)),
+            frameHeight: Math.floor(source.height / Math.max(1, m.rows)),
+          });
+        }
+        finish();
+      });
+    }
+    scene.load.start();
+  });
+}
+
+/** One Phaser animation per movement, from that movement's own sheet. */
+function ensureMovementAnimations(scene: Phaser.Scene, meta: CharacterPayload): SpriteClip[] {
+  const baseFps = Math.max(1, meta.sprite_fps ?? 10);
+  const clips: SpriteClip[] = [];
+  for (const m of movementsOf(meta)) {
+    const sheetKey = movementSheetKey(meta, m);
+    if (!scene.textures.exists(sheetKey)) continue;
+    const key = movementAnimKey(meta, m);
+    if (!scene.anims.exists(key)) {
+      scene.anims.create({
+        key,
+        frames: scene.anims.generateFrameNumbers(sheetKey, { start: 0, end: Math.max(0, m.frames - 1) }),
+        frameRate: m.fps && m.fps > 0 ? m.fps : baseFps,
+        repeat: m.kind === "idle" ? -1 : 0,
+      });
+    }
+    if (m.kind === "idle" || m.kind === "gesture") {
+      clips.push({
+        name: m.kind === "idle" ? "base" : m.name,
+        row: 0,
+        frames: m.frames,
+        fps: m.fps && m.fps > 0 ? m.fps : undefined,
+        kind: m.kind === "idle" ? "idle" : "gesture",
+        weight: m.weight && m.weight > 0 ? m.weight : 1,
+        lift: m.lift && m.lift > 0 ? m.lift : undefined,
+        animKey: key,
+      });
+    }
+  }
+  return clips;
+}
+
+/** Puts the sprite back at its resting on-screen height. Separate movement
+ * sheets can have different cell sizes, so this runs on every switch. */
+function refitToIdle(sprite: Phaser.GameObjects.Image): void {
+  const idle = sprite.getData(IDLE_POSE) as IdlePose | undefined;
+  if (idle && sprite.active) fitHeight(sprite, idle.targetHeight);
+}
+
+const REACTION_ANIMS = "reactionAnims";
+
+function buildFromMovements(
+  scene: Phaser.Scene,
+  imageKey: string,
+  x: number,
+  y: number,
+  meta: CharacterPayload,
+  options: { gesturesOnly?: boolean },
+): Phaser.GameObjects.Sprite | null {
+  const clips = ensureMovementAnimations(scene, meta);
+  const idleMovement = movementsOf(meta).find((m) => m.kind === "idle");
+  if (!clips.length || !idleMovement) return null;
+
+  const idleSheet = movementSheetKey(meta, idleMovement);
+  const sprite = scene.add.sprite(x, y, idleSheet, 0);
+
+  // Hit and fire are animations of their own now, not stills.
+  const reactions: Record<string, string> = {};
+  for (const m of movementsOf(meta)) {
+    if ((m.kind === "hit" || m.kind === "fire") && scene.anims.exists(movementAnimKey(meta, m))) {
+      reactions[m.kind] = movementAnimKey(meta, m);
+    }
+  }
+  sprite.setData(REACTION_ANIMS, reactions);
+
+  const animator = new CharacterAnimator(scene, sprite, imageKey, clips, Math.max(1, meta.sprite_fps ?? 10), {
+    gesturesOnly: options.gesturesOnly,
+    sounds: meta.sprite_sounds ?? {},
+    playSound: (url) => soundSink?.(url),
+    idleTexture: idleSheet,
+    idleFrame: 0,
+    refit: () => refitToIdle(sprite),
+  });
+  animators.set(sprite, animator);
+  sprite.once(Phaser.GameObjects.Events.DESTROY, () => animator.destroy());
+  animator.start();
+  return sprite;
+}
+
 /** Builds the character's game object from a loaded texture: an animated
  * Sprite when the upload is a sheet, a plain Image otherwise. Sprite extends
  * Image, so callers can keep treating the result as an Image. */
@@ -274,6 +446,11 @@ export function buildCharacterObject(
   meta: CharacterPayload,
   options: { gesturesOnly?: boolean } = {},
 ): Phaser.GameObjects.Image {
+  if (hasMovements(meta)) {
+    const sprite = buildFromMovements(scene, imageKey, x, y, meta, options);
+    if (sprite) return sprite;
+  }
+
   if (!isAnimated(meta)) return scene.add.image(x, y, imageKey);
 
   const built = ensureClipAnimations(scene, imageKey, meta);

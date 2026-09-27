@@ -15,6 +15,8 @@ import type {
 import { resolveAssetUrl } from "./avatarTexture";
 import {
   buildCharacterObject,
+  hasMovements,
+  loadMovementTextures,
   setCharacterSoundSink,
   flashAction,
   isAnimated,
@@ -341,7 +343,18 @@ export default class TankWarScene extends Phaser.Scene {
       this.startIdle(gunner);
     };
 
-    if (url) {
+    if (hasMovements(meta)) {
+      // One sheet per movement: all of them must be in before the boss is
+      // built, or its first gesture would have nothing to play.
+      const key = textureKeyFor(meta, meta.image_url);
+      const placeholder = this.add.text(x, y, "🪖", { fontSize: "120px" }).setOrigin(0.5).setDepth(10);
+      register(placeholder);
+      loadMovementTextures(this, meta, resolveAssetUrl).then(() => {
+        if (!placeholder.active) return;
+        placeholder.destroy();
+        register(this.buildGunnerSprite(key, x, y, meta));
+      });
+    } else if (url) {
       const key = textureKeyFor(meta, meta.image_url);
       if (this.textures.exists(key)) {
         register(this.buildGunnerSprite(key, x, y, meta));
@@ -392,7 +405,7 @@ export default class TankWarScene extends Phaser.Scene {
 
     // A sprite sheet animates the arms and face for real, so the faked breath
     // and fist pump would only fight it. Aiming, recoil and flinch still run.
-    if (isAnimated(gunner.meta)) return;
+    if (isAnimated(gunner.meta) || hasMovements(gunner.meta)) return;
 
     this.tweens.add({
       targets: sprite,

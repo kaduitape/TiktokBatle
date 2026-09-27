@@ -21,10 +21,25 @@ export interface CharacterPayload {
   sprite_clips?: SpriteClipPayload[];
   /** A sound per movement: "base", a gesture's name, "hit", "fire". */
   sprite_sounds?: Record<string, string>;
+  /** One sheet per movement. When present, used instead of the single sheet. */
+  sprite_movements?: SpriteMovementPayload[];
   /** Reaction art, swapped in briefly when the character is hit or fires. */
   hit_image_url: string | null;
   fire_image_url: string | null;
   xp_max: number;
+}
+
+/** One movement with its own sheet: as many frames as it needs. */
+export interface SpriteMovementPayload {
+  name: string;
+  kind: "idle" | "gesture" | "hit" | "fire";
+  image_url: string;
+  columns: number;
+  rows: number;
+  frames: number;
+  fps?: number;
+  weight?: number;
+  lift?: number;
 }
 
 /** One named row of a sprite sheet. */

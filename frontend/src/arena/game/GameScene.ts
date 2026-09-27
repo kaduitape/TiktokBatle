@@ -11,6 +11,8 @@ import type {
 } from "../../types/events";
 import {
   buildCharacterObject,
+  hasMovements,
+  loadMovementTextures,
   setCharacterSoundSink,
   flashAction,
   isAnimated,
@@ -218,7 +220,21 @@ export default class GameScene extends Phaser.Scene {
     }
 
     let obj: Phaser.GameObjects.Image | Phaser.GameObjects.Text;
-    if (url) {
+    if (hasMovements(meta)) {
+      // One sheet per movement: all of them must be in before the character
+      // is built, or its first gesture would have nothing to play.
+      const key = textureKeyFor(meta, meta.image_url);
+      const placeholder = this.add.text(x, y, "…", { fontSize: "40px" }).setOrigin(0.5).setDepth(10);
+      obj = placeholder;
+      loadMovementTextures(this, meta, resolveUrl).then(() => {
+        if (!placeholder.active) return;
+        placeholder.destroy();
+        const sprite = this.buildCharSprite(key, x, y, meta);
+        parts.push(sprite);
+        if (side === "A") this.charSpriteA = sprite;
+        else this.charSpriteB = sprite;
+      });
+    } else if (url) {
       const key = textureKeyFor(meta, meta.image_url);
       if (this.textures.exists(key)) {
         obj = this.buildCharSprite(key, x, y, meta);
@@ -263,7 +279,7 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     // A sheet already carries its own motion; the float would fight it.
-    if (!isAnimated(meta)) {
+    if (!isAnimated(meta) && !hasMovements(meta)) {
       this.tweens.add({ targets: img, y: y - 8, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
     return img;

@@ -278,6 +278,9 @@ class StudioResult:
     clips: list[dict] = field(default_factory=list)
     #: Frames whose card did not come off cleanly, in words for the panel.
     warnings: list[str] = field(default_factory=list)
+    #: The same frames grouped per movement, for one sheet each:
+    #: (name, kind, frames, fps, weight, lift).
+    movement_frames: list[tuple] = field(default_factory=list)
 
 
 async def generate_artwork(
@@ -522,6 +525,13 @@ def _lay_out(
     if not base:
         return StudioResult(sheet=None, hit=hit, fire=fire)
 
+    movement_frames: list[tuple] = [("base", "idle", list(base), 0, 1.0, 0.0)]
+    for gesture, row in zip(gestures, gesture_rows):
+        movement_frames.append((gesture.name, "gesture", list(row), gesture.fps, gesture.weight, gesture.lift))
+    for kind, still in (("hit", hit), ("fire", fire)):
+        if still:
+            movement_frames.append((kind, kind, [Image.open(BytesIO(still)).convert("RGBA")], 0, 1.0, 0.0))
+
     if not gesture_rows:
         sheet = compose_rows([base]) if columns <= 0 else _wrapped(base, columns)
         clips = [
@@ -532,7 +542,9 @@ def _lay_out(
         # clips at all keeps the old behaviour in the game.
         if sheet.rows > 1:
             clips = []
-        return StudioResult(sheet=sheet, hit=hit, fire=fire, clips=clips)
+        return StudioResult(
+            sheet=sheet, hit=hit, fire=fire, clips=clips, movement_frames=movement_frames
+        )
 
     sheet = compose_rows([base, *gesture_rows])
     clips: list[dict] = [
@@ -551,7 +563,9 @@ def _lay_out(
         if gesture.lift > 0:
             clip["lift"] = gesture.lift
         clips.append(clip)
-    return StudioResult(sheet=sheet, hit=hit, fire=fire, clips=clips)
+    return StudioResult(
+        sheet=sheet, hit=hit, fire=fire, clips=clips, movement_frames=movement_frames
+    )
 
 
 def _wrapped(frames: list[Image.Image], columns: int) -> SheetLayout:

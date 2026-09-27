@@ -21,6 +21,8 @@ interface Props {
   height?: number;
   /** Tank War holds a still frame and only plays gestures. */
   gesturesOnly?: boolean;
+  /** Just the moving picture: for a single movement there is nothing to pick. */
+  bare?: boolean;
 }
 
 const CHECKER = "repeating-conic-gradient(#2a2a3a 0% 25%, #1b1b28 0% 50%) 50% / 24px 24px";
@@ -37,7 +39,7 @@ const CHECKER = "repeating-conic-gradient(#2a2a3a 0% 25%, #1b1b28 0% 50%) 50% / 
  * does, so what plays here is what plays there.
  */
 export default function SpritePreview({
-  url, columns, rows, frameCount, fps, clips, height = 260, gesturesOnly = false,
+  url, columns, rows, frameCount, fps, clips, height = 260, gesturesOnly = false, bare = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -133,6 +135,7 @@ export default function SpritePreview({
         ref={canvasRef}
         style={{ background: CHECKER, borderRadius: 8, display: "block", height }}
       />
+      {!bare && (
       <div className="gift-filters" style={{ marginTop: 8 }}>
         <span style={{ color: "#9a9ac0", fontSize: 12 }}>
           {gesturesOnly ? "Parado (Guerra de Tanques) — toque um gesto:" : "Tocando o movimento base."}
@@ -151,6 +154,7 @@ export default function SpritePreview({
           <span style={{ color: "#9a9ac0", fontSize: 12 }}>Sem gestos nesta folha.</span>
         )}
       </div>
+      )}
     </div>
   );
 }

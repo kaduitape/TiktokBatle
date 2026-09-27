@@ -255,7 +255,11 @@ def _compose(
         if frame is None:
             continue
         anchor_x = anchors[i] if i in anchors else _horizontal_anchor(frame)
-        ratio = min(cell_w / frame.width, cell_h / frame.height)
+        # Every frame gets the same scale -- the sheet's own downscale -- and
+        # is only shrunk further if it does not fit. Fitting each frame to the
+        # cell used to blow a crouch up to full height and undo the size
+        # normalisation above.
+        ratio = min(scale, cell_w / frame.width, cell_h / frame.height)
         resized = frame.resize(
             (max(1, int(frame.width * ratio)), max(1, int(frame.height * ratio))),
             Image.LANCZOS,
@@ -282,3 +286,144 @@ def _compose(
         frame_width=cell_w,
         frame_height=cell_h,
     )
+
+
+# ---------------------------------------------------------------------------
+# One sheet per movement
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MovementStandard:
+    """What every movement of one character must agree on.
+
+    Separate sheets are only interchangeable if the character is the same
+    size and in the same place in all of them: the arena swaps sheets when a
+    gesture starts, and any difference shows up as the character jumping in
+    scale or sliding sideways at that moment. So the cell, and how much of
+    it the character fills, are decided once -- by the base movement -- and
+    every other movement is fitted to them.
+    """
+
+    cell_w: int
+    cell_h: int
+    #: Median visible area of one frame, in cell pixels.
+    target_area: float
+
+
+def _trimmed(frame: Image.Image) -> Image.Image:
+    img = frame.convert("RGBA")
+    return img.crop(_content_mask(img).getbbox() or (0, 0, img.width, img.height))
+
+
+def _to_area(frame: Image.Image, target_area: float) -> Image.Image:
+    scale = max(
+        MIN_NORMALIZE_SCALE,
+        min(MAX_NORMALIZE_SCALE, sqrt(target_area / _visible_area(frame))),
+    )
+    if abs(scale - 1.0) < 0.01:
+        return frame
+    return frame.resize(
+        (max(1, round(frame.width * scale)), max(1, round(frame.height * scale))), Image.LANCZOS
+    )
+
+
+def _grid(frames: list[Image.Image], anchors: list[float], cell_w: int, cell_h: int) -> SheetLayout:
+    """Lay one movement's frames on a grid that stays inside MAX_SIDE.
+
+    Wrapped into rows rather than one long strip, so a 24-frame loop fits a
+    texture without shrinking. When even that is too big, the whole grid is
+    scaled down; the arena refits the character to the same on-screen height
+    whenever it switches sheet, so a smaller cell does not mean a smaller
+    character.
+    """
+    n = len(frames)
+    scale = 1.0
+    while True:
+        cw, ch = max(1, int(cell_w * scale)), max(1, int(cell_h * scale))
+        columns = max(1, min(n, MAX_SIDE // cw))
+        rows = -(-n // columns)
+        if rows * ch <= MAX_SIDE or scale < 0.05:
+            break
+        scale *= 0.9
+
+    sheet = Image.new("RGBA", (cw * columns, ch * rows), (0, 0, 0, 0))
+    for i, (frame, anchor) in enumerate(zip(frames, anchors)):
+        # Same scale for every frame (only shrunk if it does not fit), so the
+        # character is the same size in every frame of every movement.
+        ratio = min(scale, cw / frame.width, ch / frame.height)
+        resized = frame.resize(
+            (max(1, int(frame.width * ratio)), max(1, int(frame.height * ratio))), Image.LANCZOS
+        )
+        col, row = i % columns, i // columns
+        x = round(cw / 2 - anchor * ratio)
+        x = max(0, min(cw - resized.width, x))
+        sheet.paste(resized, (col * cw + x, row * ch + (ch - resized.height)), resized)
+
+    buffer = BytesIO()
+    sheet.save(buffer, format="PNG")
+    return SheetLayout(
+        png=buffer.getvalue(),
+        columns=columns,
+        rows=rows,
+        frame_count=n,
+        frame_width=cw,
+        frame_height=ch,
+    )
+
+
+def compose_movements(
+    movements: list[list[Image.Image]],
+    standard: MovementStandard | None = None,
+) -> tuple[list[SheetLayout], MovementStandard]:
+    """One sheet per movement, all of them agreeing on size and position.
+
+    Without a ``standard`` the movements given here set it together (the
+    studio and the importer, which produce every movement at once). With one
+    -- a movement added later to an existing character -- the new frames are
+    fitted to it instead, so the new sheet slots in next to the old ones.
+    """
+    trimmed = [[_trimmed(f) for f in frames] for frames in movements]
+    every = [f for frames in trimmed for f in frames]
+    if not every:
+        raise ValueError("nenhuma pose para montar")
+
+    target = standard.target_area if standard else float(median(_visible_area(f) for f in every))
+    normalised = [[_to_area(f, target) for f in frames] for frames in trimmed]
+    anchors = [[_horizontal_anchor(f) for f in frames] for frames in normalised]
+
+    if standard:
+        cell_w, cell_h = standard.cell_w, standard.cell_h
+    else:
+        left = max(a for group in anchors for a in group)
+        right = max(f.width - a for frames, group in zip(normalised, anchors) for f, a in zip(frames, group))
+        cell_w = max(1, round(2 * max(left, right)))
+        cell_h = max(f.height for frames in normalised for f in frames)
+        standard = MovementStandard(cell_w=cell_w, cell_h=cell_h, target_area=target)
+
+    sheets = [
+        _grid(frames, group, cell_w, cell_h) if frames else None
+        for frames, group in zip(normalised, anchors)
+    ]
+    return sheets, standard
+
+
+def standard_from_sheet(image: Image.Image, columns: int, rows: int, frame_count: int) -> MovementStandard:
+    """Read the standard back out of an existing movement's sheet.
+
+    The base movement's cell is the standard's cell, and its frames' median
+    visible area is the size every later movement is fitted to -- both in
+    that sheet's own pixels, so a base sheet that had to be shrunk to fit is
+    still matched exactly.
+    """
+    rgba = image.convert("RGBA")
+    columns, rows = max(1, columns), max(1, rows)
+    cw, ch = rgba.width // columns, rgba.height // rows
+    count = frame_count if frame_count > 0 else columns * rows
+    areas = []
+    for i in range(count):
+        col, row = i % columns, i // columns
+        cell = rgba.crop((col * cw, row * ch, (col + 1) * cw, (row + 1) * ch))
+        if cell.getchannel("A").getbbox():
+            areas.append(_visible_area(cell))
+    return MovementStandard(cell_w=cw, cell_h=ch, target_area=float(median(areas)) if areas else cw * ch * 0.4)

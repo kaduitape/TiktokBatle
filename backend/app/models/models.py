@@ -71,6 +71,15 @@ class Character(Base):
     # "fire". Keyed by name rather than row so reordering a sheet's rows does
     # not reassign a jump's sound to a blink.
     sprite_sounds: Mapped[dict] = mapped_column(JSON, default=dict)
+    # One sheet per movement, when the character has them:
+    # [{"name": "base", "kind": "idle"|"gesture"|"hit"|"fire",
+    #   "image_url": ..., "columns": 4, "rows": 6, "frames": 24,
+    #   "fps": 12, "weight": 2, "lift": 0}]
+    # A packed single sheet shares one texture limit between every movement,
+    # so more frames anywhere meant smaller frames everywhere. Separate
+    # sheets let the loop have 24 frames without shrinking the blink. Empty
+    # keeps the single sheet + sprite_clips behaviour.
+    sprite_movements: Mapped[list] = mapped_column(JSON, default=list)
 
     # Reaction art: single stills swapped in for a moment when the character
     # does something. Optional -- without them the character just keeps its
@@ -118,6 +127,15 @@ class SpriteModel(Base):
     # "fire". Keyed by name rather than row so reordering a sheet's rows does
     # not reassign a jump's sound to a blink.
     sprite_sounds: Mapped[dict] = mapped_column(JSON, default=dict)
+    # One sheet per movement, when the character has them:
+    # [{"name": "base", "kind": "idle"|"gesture"|"hit"|"fire",
+    #   "image_url": ..., "columns": 4, "rows": 6, "frames": 24,
+    #   "fps": 12, "weight": 2, "lift": 0}]
+    # A packed single sheet shares one texture limit between every movement,
+    # so more frames anywhere meant smaller frames everywhere. Separate
+    # sheets let the loop have 24 frames without shrinking the blink. Empty
+    # keeps the single sheet + sprite_clips behaviour.
+    sprite_movements: Mapped[list] = mapped_column(JSON, default=list)
 
     # What produced it, kept so a model can be regenerated or tweaked later
     # without remembering what was typed months ago.

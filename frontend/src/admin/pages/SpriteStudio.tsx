@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { API_BASE, api } from "../../api/client";
 import SpritePreview from "../SpritePreview";
 import MovementSounds from "../MovementSounds";
+import MovementEditor, { type Movement } from "../MovementEditor";
 
 /** One image service the panel can draw with. */
 interface ProviderInfo {
@@ -59,6 +60,8 @@ interface Sheet {
   clips: Clip[];
   /** Frames whose background did not come off cleanly. */
   warnings?: string[];
+  /** The same art, one sheet per movement. */
+  movements?: Movement[];
 }
 
 interface Character {
@@ -239,6 +242,7 @@ interface SpriteModel {
   hit_image_url: string | null;
   fire_image_url: string | null;
   sprite_clips: Clip[];
+  sprite_movements?: Movement[];
   description: string | null;
   created_at: string;
 }
@@ -287,6 +291,8 @@ export default function SpriteStudio() {
   const [sheet, setSheet] = useState<Sheet | null>(null);
   /** A sound per movement, carried into the model or character made from this sheet. */
   const [sounds, setSounds] = useState<Record<string, string>>({});
+  /** One sheet per movement, so each can have as many frames as it needs. */
+  const [movements, setMovements] = useState<Movement[]>([]);
   /** An imported sheet: where it came from and what each detected row is for. */
   const [importUrl, setImportUrl] = useState<string | null>(null);
   const [detected, setDetected] = useState<DetectedRow[]>([]);
@@ -517,6 +523,7 @@ export default function SpriteStudio() {
     setError("");
     setApplied("");
     setSheet(null);
+    setMovements([]);
     setImportUrl(null);
     setDetected([]);
     setProgress("começando...");
@@ -545,6 +552,7 @@ export default function SpriteStudio() {
 
         if (job.status === "done" && job.result) {
           setSheet(job.result);
+          setMovements(job.result.movements ?? []);
           setProgress("");
           return;
         }
@@ -595,6 +603,7 @@ export default function SpriteStudio() {
         fire_image_url: sheet.fire_url,
         sprite_clips: sheet.clips,
         sprite_sounds: sounds,
+        sprite_movements: movements,
         description,
         poses: poses.filter((pose) => pose.trim()),
       });
@@ -684,6 +693,7 @@ export default function SpriteStudio() {
       setImportUrl(url);
       setDetected(found);
       setSheet(rest);
+      setMovements(rest.movements ?? []);
       setApplied(
         `Encontrei ${found.length} linha(s) e ${found.reduce((n, r) => n + r.frames, 0)} quadro(s). ` +
           "Confira abaixo o que cada linha é e veja em movimento.",
@@ -730,6 +740,7 @@ export default function SpriteStudio() {
           ...(sheet.hit_url ? { hit_image_url: sheet.hit_url } : {}),
           ...(sheet.fire_url ? { fire_image_url: sheet.fire_url } : {}),
           sprite_sounds: sounds,
+          sprite_movements: movements,
         }
       : {};
 
@@ -786,6 +797,7 @@ export default function SpriteStudio() {
         ...(sheet.hit_url ? { hit_image_url: sheet.hit_url } : {}),
         ...(sheet.fire_url ? { fire_image_url: sheet.fire_url } : {}),
         ...(Object.keys(sounds).length ? { sprite_sounds: sounds } : {}),
+        ...(movements.length ? { sprite_movements: movements } : {}),
       });
       const parts = [
         sheet.url && "animação",
@@ -1420,13 +1432,32 @@ export default function SpriteStudio() {
             </div>
           )}
 
-          {sheet.url && sheet.columns > 0 && (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262638" }}>
+            <h4 style={{ margin: "0 0 4px", fontSize: 14 }}>Um sprite por movimento</h4>
+            <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 8px" }}>
+              Cada movimento tem a sua própria folha, com quantos quadros quiser (até 120). Para deixar um
+              movimento mais suave, clique em <b>Trocar quadros</b> e envie uma folha pronta ou vários PNGs de uma vez
+              (quadro_01.png, quadro_02.png…). Todos são ajustados ao tamanho do movimento base, então o personagem
+              não muda de tamanho quando troca de movimento.
+            </p>
+            <MovementEditor movements={movements} onChange={setMovements} baseFps={fps} />
+          </div>
+
+          {((sheet.url && sheet.columns > 0) || movements.length > 0) && (
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262638" }}>
               <h4 style={{ margin: "0 0 4px", fontSize: 14 }}>Som de cada movimento</h4>
               <p style={{ color: "#9a9ac0", fontSize: 12, margin: "0 0 8px" }}>
                 Opcional. Vai junto quando você salva o modelo, aplica ou cria o personagem.
               </p>
-              <MovementSounds clips={sheet.clips} sounds={sounds} onChange={setSounds} disabled={busy} />
+              <MovementSounds
+                clips={[
+                  ...sheet.clips,
+                  ...movements.filter((m) => m.kind === "gesture").map((m) => ({ name: m.name, kind: "gesture" as const })),
+                ]}
+                sounds={sounds}
+                onChange={setSounds}
+                disabled={busy}
+              />
             </div>
           )}
 
@@ -1550,6 +1581,8 @@ export default function SpriteStudio() {
                     ` · ${model.sprite_clips.filter((c) => c.kind === "gesture").length} gesto(s)`}
                   {model.hit_image_url && " · dano"}
                   {model.fire_image_url && " · ataque"}
+                  {(model.sprite_movements?.length ?? 0) > 0 &&
+                    ` · ${model.sprite_movements!.length} sprite(s) de movimento`}
                 </div>
                 {model.image_url && model.sprite_columns > 0 && (
                   <details style={{ marginTop: 8 }}>

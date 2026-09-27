@@ -85,6 +85,8 @@ class CharacterIn(BaseModel):
     sprite_clips: JsonList = Field(default_factory=list)
     #: Sound per movement: "base", a gesture's name, "hit", "fire" -> /uploads URL.
     sprite_sounds: JsonDict = Field(default_factory=dict)
+    #: One sheet per movement; empty = the single sheet above. See the model.
+    sprite_movements: JsonList = Field(default_factory=list)
     hit_image_url: str | None = None
     fire_image_url: str | None = None
     xp_max: int = 100_000
@@ -241,6 +243,8 @@ class SpriteModelIn(BaseModel):
     sprite_clips: JsonList = Field(default_factory=list)
     #: Sound per movement: "base", a gesture's name, "hit", "fire" -> /uploads URL.
     sprite_sounds: JsonDict = Field(default_factory=dict)
+    #: One sheet per movement; empty = the single sheet above. See the model.
+    sprite_movements: JsonList = Field(default_factory=list)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
 
@@ -258,6 +262,8 @@ class SpriteModelOut(BaseModel):
     sprite_clips: JsonList = Field(default_factory=list)
     #: Sound per movement: "base", a gesture's name, "hit", "fire" -> /uploads URL.
     sprite_sounds: JsonDict = Field(default_factory=dict)
+    #: One sheet per movement; empty = the single sheet above. See the model.
+    sprite_movements: JsonList = Field(default_factory=list)
     description: str | None = None
     poses: list[str] = Field(default_factory=list)
     created_at: datetime
@@ -272,7 +278,7 @@ class GesturePresetIn(BaseModel):
     #: Also the clip name on the sheet, so it stays machine-friendly.
     name: str = Field(min_length=1, max_length=40)
     label: str = Field(default="", max_length=60)
-    poses: list[str] = Field(default_factory=list, max_length=6)
+    poses: list[str] = Field(default_factory=list, max_length=12)
     fps: int = Field(default=0, ge=0, le=60)
     weight: float = Field(default=1.0, gt=0.0, le=10.0)
     lift: float = Field(default=0.0, ge=0.0, le=1.0)

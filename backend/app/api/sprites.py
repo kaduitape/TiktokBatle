@@ -29,12 +29,12 @@ router = APIRouter(prefix="/api/sprites", tags=["sprites"])
 logger = logging.getLogger("sprites")
 
 # Enough poses to read as an animation without burning credits by accident.
-MAX_POSES = 8
+MAX_POSES = 16
 
 # Gestures are extra rows, each its own handful of calls, so they are capped
 # separately -- a run with six gestures of four frames is twenty-four images.
 MAX_GESTURES = 6
-MAX_GESTURE_POSES = 6
+MAX_GESTURE_POSES = 12
 
 
 class GestureIn(BaseModel):
@@ -77,6 +77,9 @@ class GenerateOut(BaseModel):
     clips: list[dict] = Field(default_factory=list)
     #: Frames whose background did not come off cleanly, for the panel.
     warnings: list[str] = Field(default_factory=list)
+    #: One sheet per movement (base, each gesture, hit, fire), all fitted to
+    #: the same size -- what the arena uses when present.
+    movements: list[dict] = Field(default_factory=list)
 
 
 class KeyIn(BaseModel):
@@ -367,6 +370,36 @@ async def job_status(job_id: str, _: str = Depends(require_admin)):
     )
 
 
+def _movement_record(name, kind, layout, fps=0, weight=1.0, lift=0.0) -> dict:
+    return {
+        "name": name,
+        "kind": kind,
+        "image_url": _save_png(layout.png),
+        "columns": layout.columns,
+        "rows": layout.rows,
+        "frames": layout.frame_count,
+        "frame_width": layout.frame_width,
+        "frame_height": layout.frame_height,
+        "fps": int(fps or 0),
+        "weight": float(weight or 1.0),
+        "lift": float(lift or 0.0),
+    }
+
+
+def _save_movements(movement_frames: list[tuple]) -> list[dict]:
+    """Every movement on its own sheet, fitted together so they match."""
+    from app.services.sprite_sheet import compose_movements
+
+    usable = [m for m in movement_frames if m[2]]
+    if not usable:
+        return []
+    sheets, _standard = compose_movements([m[2] for m in usable])
+    return [
+        _movement_record(name, kind, sheet, fps, weight, lift)
+        for (name, kind, _frames, fps, weight, lift), sheet in zip(usable, sheets)
+    ]
+
+
 def _to_out(result) -> GenerateOut:
     out = GenerateOut()
     if result.sheet:
@@ -388,6 +421,7 @@ def _to_out(result) -> GenerateOut:
             # list would only describe a grid the game is not going to read.
             out.clips = []
     out.warnings = list(getattr(result, "warnings", []) or [])
+    out.movements = _save_movements(getattr(result, "movement_frames", []) or [])
     if result.hit:
         out.hit_url = _save_png(result.hit)
     if result.fire:
@@ -511,6 +545,9 @@ def _build_import(image_bytes: bytes, requested: list[ImportRowIn] | None):
     gestures: list = []
     gesture_rows: list = []
     hit = fire = None
+    # A reaction row of several frames is an animation, not a still: it keeps
+    # every frame as its own movement (the first is still the hit/fire image).
+    reactions: list[tuple] = []
     used = 0
     for row, role in zip(rows, roles):
         images = [f.image for f in row]
@@ -523,8 +560,10 @@ def _build_import(image_bytes: bytes, requested: list[ImportRowIn] | None):
             gesture_rows.append(images)
         elif role.role == "hit" and hit is None:
             hit = _as_png(images[0])
+            reactions.append(("hit", "hit", images, 0, 1.0, 0.0))
         elif role.role == "fire" and fire is None:
             fire = _as_png(images[0])
+            reactions.append(("fire", "fire", images, 0, 1.0, 0.0))
 
     if not base:
         # Nothing marked as the loop: the first row that is not a still is.
@@ -538,6 +577,7 @@ def _build_import(image_bytes: bytes, requested: list[ImportRowIn] | None):
         raise HTTPException(400, "Marque pelo menos uma linha como movimento base.")
 
     result = _lay_out(base, gestures, gesture_rows, 0, hit, fire)
+    result.movement_frames = [m for m in result.movement_frames if m[1] not in ("hit", "fire")] + reactions
     kept = [
         f"linha {ri + 1} quadro {fi + 1}"
         for ri, row in enumerate(rows)
@@ -580,6 +620,95 @@ async def import_sheet(body: ImportIn, _: str = Depends(require_admin)):
     return ImportOut(**out.model_dump(), detected=detected)
 
 
+class MovementReference(BaseModel):
+    """The character's base movement, which a new movement must match."""
+
+    image_url: str
+    columns: int = Field(ge=1)
+    rows: int = Field(ge=1)
+    frames: int = Field(default=0, ge=0)
+
+
+class MovementBuildIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    kind: str = Field(pattern="^(idle|gesture|hit|fire)$")
+    #: One image = a sheet, whose frames are found; several = one frame each,
+    #: in the order given.
+    image_urls: list[str] = Field(min_length=1, max_length=120)
+    fps: int = Field(default=0, ge=0, le=60)
+    weight: float = Field(default=1.0, gt=0, le=10)
+    lift: float = Field(default=0.0, ge=0, le=1)
+    #: Omitted for the first (base) movement: it sets the standard.
+    reference: MovementReference | None = None
+
+
+def _build_movement(body: MovementBuildIn) -> tuple[dict, list[str]]:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.services.background_cutout import already_transparent, cut_out
+    from app.services.sprite_import import detect_frames
+    from app.services.sprite_sheet import compose_movements, standard_from_sheet
+
+    def load(url: str) -> Image.Image:
+        try:
+            img = Image.open(BytesIO(_read_upload(url)))
+            img.load()
+            return img.convert("RGBA")
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, f"Não consegui ler a imagem {os.path.basename(url)}.") from exc
+
+    warnings: list[str] = []
+    if len(body.image_urls) == 1:
+        rows = detect_frames(load(body.image_urls[0]))
+        frames = [f.image for row in rows for f in row]
+        kept = sum(1 for row in rows for f in row if f.cleaned == "kept")
+    else:
+        frames, kept = [], 0
+        for url in body.image_urls:
+            img = load(url)
+            if not already_transparent(img):
+                cleaned, changed = cut_out(img)
+                if changed:
+                    img = cleaned
+                else:
+                    kept += 1
+            frames.append(img)
+    if not frames:
+        raise HTTPException(400, "Não encontrei nenhum quadro nessa imagem.")
+    if kept:
+        warnings.append(
+            f"{kept} quadro(s) ficaram com fundo (não era uma cor lisa). "
+            "Use PNG com fundo transparente ou de uma cor só."
+        )
+
+    standard = None
+    if body.reference:
+        ref = body.reference
+        standard = standard_from_sheet(load(ref.image_url), ref.columns, ref.rows, ref.frames)
+    (sheet,), _ = compose_movements([frames], standard)
+    record = _movement_record(body.name.strip(), body.kind, sheet, body.fps, body.weight, body.lift)
+    return record, warnings
+
+
+@router.post("/movements/build")
+async def build_movement(body: MovementBuildIn, _: str = Depends(require_admin)):
+    """One movement, one sheet, as many frames as you have.
+
+    Frames come from a sheet (found automatically) or from separate files,
+    one per frame. A movement added to an existing character is fitted to
+    its base movement, so switching between them does not change the
+    character's size or position.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    record, warnings = await run_in_threadpool(_build_movement, body)
+    return {"movement": record, "warnings": warnings}
+
+
 # ---------------------------------------------------------------------------
 # Saved models: a finished animated character, kept to be reused
 # ---------------------------------------------------------------------------
@@ -598,6 +727,7 @@ def _model_out(model: SpriteModel) -> SpriteModelOut:
         fire_image_url=model.fire_image_url,
         sprite_clips=list(model.sprite_clips or []),
         sprite_sounds=dict(model.sprite_sounds or {}),
+        sprite_movements=list(model.sprite_movements or []),
         description=model.description,
         poses=list(model.poses_json or []),
         created_at=model.created_at,
@@ -646,6 +776,7 @@ async def save_model(
         fire_image_url=body.fire_image_url,
         sprite_clips=list(body.sprite_clips),
         sprite_sounds=dict(body.sprite_sounds),
+        sprite_movements=list(body.sprite_movements),
         description=body.description,
         poses_json=list(body.poses),
     )
