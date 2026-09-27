@@ -59,10 +59,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     # Tank war tuning. The team keywords are settings rather than constants so
     # the mode isn't tied to any particular pair of characters -- swap them for
     # whatever the two sides are called on the day.
-    # Tank war: the viewers chip at the enemy boss's huge health pool, and the
-    # bosses bomb individual viewers back. Balance target with a 1.5M boss: a
-    # 1-coin rose does 500, a 30-coin gift 15k, a 500-coin gift 250k -- so the
-    # boss falls to sustained team effort, not to one whale.
+    # Tank war: the viewers chip at the enemy boss's health pool, and the
+    # bosses bomb individual viewers back. Damage is a share of the boss's own
+    # health, so the pace is the same whatever "vida máxima" the character
+    # has: at 0.01% per coin a boss takes 10,000 coins to fall, no single gift
+    # takes more than 1%, and every soldier on the attacking side makes the
+    # boss 3% tougher -- a packed LIVE fights longer, not shorter.
     "tank_war": {
         "team_a_keyword": "A",
         "team_b_keyword": "B",
@@ -70,7 +72,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         # next arrivals wait in line and walk in as others are eliminated.
         "max_field_players": 100,
         "soldier_hp": 150,
-        "boss_damage_per_coin": 500,
+        "boss_damage_percent_per_coin": 0.01,
+        # Ceiling for one gift event, in % of the boss's health (0 = none),
+        # so one expensive gift cannot end the battle on its own.
+        "boss_max_hit_percent": 1.0,
+        # Each living soldier attacking a boss makes it this much (%) tougher.
+        "boss_resistance_per_fighter": 3,
         # How often each boss lobs a bomb at the other side, and how hard it
         # hits. Default wipes a full-health soldier in one go.
         "bomb_interval_seconds": 12,

@@ -79,13 +79,15 @@ derrubam o chefão adversário.
 - **Primeiro escolha um lado**: presente de quem ainda não comentou `A` ou
   `B` não entra na batalha nem causa dano. Assim, só aparece quem escolheu
   votar em um dos dois times.
-- **Chefões com mais de 1 milhão de vida**: entram com **1.500.000** cada,
-  então a partida é uma guerra de desgaste do time inteiro.
+- **Guerra de desgaste**: o dano é uma **porcentagem da vida do chefão**, então
+  a batalha dura o mesmo com qualquer "vida máxima" de personagem. Nenhum
+  presente sozinho derruba o chefão, e **cada soldado atacando deixa o chefão
+  mais resistente** — quanto mais gente entra, mais longa a batalha.
 - **A bolinha do perfil dispara contra o personagem rival.** Ela fica na
   parte inferior do lado escolhido e o projétil sai dela, deixando claro quem
   enviou o presente. Todo presente acerta o chefão adversário; a única diferença
-  é **quanto de dano** (o preço em moedas × quantidade ×
-  `boss_damage_per_coin`) e se é **especial** — os especiais anunciam o nome de
+  é **quanto de dano** (o preço em moedas × quantidade, em % da vida do
+  chefão) e se é **especial** — os especiais anunciam o nome de
   quem mandou e sacodem a tela mais forte. Não existe presente de cura neste
   modo.
 - **No máximo 100 em campo, somando os dois times.** Com a arena lotada, quem
@@ -104,19 +106,21 @@ derrubam o chefão adversário.
   partir dos presentes cadastrados, então muda sozinha quando você mexe em
   **Admin → Presentes**.
 
-Com os valores padrão (chefão com 1.500.000 de vida, 500 de dano por moeda):
+Com os valores padrão (0,01% da vida por moeda, no máximo 1% por presente,
++3% de resistência por soldado atacando):
 
-| Presente | Moedas | Dano no chefão | Vida do chefão |
-|---|---|---|---|
-| 🌹 Rosa | 1 | 500 | 0,03% |
-| 🌸 Flor Aberta | 10 | 5.000 | 0,3% |
-| 🍩 Rosquinha | 30 | 15.000 | 1% |
-| 🫶 Mãos Coração | 100 | 50.000 | 3,3% |
-| ☄️ Meteoro ★ | 500 | 250.000 | 16,7% |
+| Presente | Moedas | 1 soldado atacando | 20 soldados | 100 soldados |
+|---|---|---|---|---|
+| 🌹 Rosa | 1 | 0,01% | 0,006% | 0,0025% |
+| 🍩 Rosquinha | 30 | 0,29% | 0,19% | 0,075% |
+| 🫶 Mãos Coração | 100 | 0,97% | 0,63% | 0,25% |
+| ☄️ Meteoro ★ | 500 | 0,97% (teto) | 0,63% | 0,25% |
 
-Ajuste tudo na chave `tank_war` de **Settings** (`team_a_keyword`,
-`team_b_keyword`, `max_field_players`, `soldier_hp`, `boss_damage_per_coin`,
-`bomb_interval_seconds`, `bomb_damage`, `bomb_active_pool`) e o preço em
+Ajuste em **Admin → Batalhas → Equilíbrio da Guerra de Tanques** (dano por
+moeda, teto por presente, resistência por soldado, vida do soldado e bombas),
+que mostra na hora quanto cada presente vai tirar. As palavras de entrada e o
+tamanho do campo ficam na chave `tank_war` de **Settings** (`team_a_keyword`,
+`team_b_keyword`, `max_field_players`, `bomb_active_pool`) e o preço em
 moedas de cada presente em **Admin → Presentes**.
 
 > **A arte dos charges**: o modo já vem com a batalha "Guerra de Tanques" e os

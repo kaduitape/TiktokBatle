@@ -95,7 +95,6 @@ export default class TankWarScene extends Phaser.Scene {
    * which word puts them on which side. */
   private joinHints: Partial<Record<"A" | "B", Phaser.GameObjects.Text>> = {};
   private keywords: Record<"A" | "B", string> = { A: "A", B: "B" };
-  private damagePerCoin = 500;
   private victoryShown = false;
 
   constructor() {
@@ -206,7 +205,6 @@ export default class TankWarScene extends Phaser.Scene {
         A: String(config.team_a_keyword ?? "A").toUpperCase(),
         B: String(config.team_b_keyword ?? "B").toUpperCase(),
       };
-      this.damagePerCoin = Number(config.boss_damage_per_coin ?? 500);
       this.refreshJoinHints();
     } catch {
       /* keep the defaults -- the hints still read correctly */

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, assetUrl } from "../../api/client";
+import TankWarBalance from "../TankWarBalance";
 
 interface Character {
   id: string;
@@ -350,6 +351,8 @@ export default function Battles() {
           {form.id && <button className="secondary" onClick={() => setForm(empty)}>Cancelar</button>}
         </div>
       </div>
+
+      {(form.mode === "tank_war" || battles.some((b) => b.mode === "tank_war")) && <TankWarBalance />}
 
       <div className="card">
         <table>

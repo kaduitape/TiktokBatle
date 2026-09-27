@@ -768,10 +768,13 @@ class GamePipeline:
         # health pool is the same side_a_xp/side_b_xp the classic mode uses, so
         # the clamping and victory checks are shared.
         target_side = tank_war_manager.enemy_side(team)
-        damage = tank_war_manager.boss_damage(gift, quantity, config)
 
         side_a_char = await db.get(Character, battle.side_a_character_id)
         side_b_char = await db.get(Character, battle.side_b_character_id)
+        boss = side_a_char if target_side == "A" else side_b_char
+        await db.flush()
+        attackers = await tank_war_manager.count_fighters(db, session.id, team)
+        damage = tank_war_manager.boss_damage(gift, quantity, config, boss.xp_max, attackers)
         boss_hp = xp_manager.apply(session, target_side, -damage, side_a_char, side_b_char)
 
         player.gifts_total += quantity

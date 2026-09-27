@@ -143,12 +143,47 @@ class TankWarManager:
         return player
 
     @staticmethod
-    def boss_damage(gift: Gift, quantity: int, config: dict[str, Any]) -> float:
-        """The gift's coin price is the shot's power, so an expensive gift
-        moves the boss's bar far more than a cheap one."""
-        per_coin = float(config.get("boss_damage_per_coin", 500))
+    def boss_damage(
+        gift: Gift, quantity: int, config: dict[str, Any], boss_max: float, attackers: int = 0
+    ) -> float:
+        """How much of the enemy boss one gift takes.
+
+        The gift's coin price is the shot's power, measured as a share of the
+        boss's own health -- so a boss with 100k and one with 1.5M last just as
+        long. One gift never takes more than `boss_max_hit_percent`, and every
+        soldier attacking the boss makes it `boss_resistance_per_fighter`%
+        tougher, so the more people join, the longer the fight.
+        """
+        boss_max = max(1.0, float(boss_max or 1))
+        per_coin = max(0.0, float(config.get("boss_damage_percent_per_coin", 0.01))) / 100
         coins = max(1, gift.coins or 1)
-        return coins * quantity * per_coin * (gift.multiplier or 1.0)
+        damage = coins * quantity * (gift.multiplier or 1.0) * per_coin * boss_max
+
+        cap = max(0.0, float(config.get("boss_max_hit_percent", 1.0))) / 100
+        if cap > 0:
+            damage = min(damage, cap * boss_max)
+
+        resistance = max(0.0, float(config.get("boss_resistance_per_fighter", 3))) / 100
+        damage /= 1 + resistance * max(0, attackers)
+        return damage
+
+    @staticmethod
+    async def count_fighters(db: AsyncSession, session_id: str, team: str) -> int:
+        """Soldiers of `team` standing on the field right now."""
+        return (
+            await db.execute(
+                select(func.count())
+                .select_from(Player)
+                .where(
+                    Player.session_id == session_id,
+                    Player.team == team,
+                    Player.team_selected.is_(True),
+                    Player.queued.is_(False),
+                    Player.eliminated.is_(False),
+                    Player.power > 0,
+                )
+            )
+        ).scalar_one()
 
     @staticmethod
     async def pick_bomb_target(
